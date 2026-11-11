@@ -1,0 +1,52 @@
+# vps-mcp policy & connection config. Validate with: vps-mcp check-config --config <this file>
+# Unknown keys are errors, so a typo can never silently weaken the policy.
+
+[vps]
+name = "prod-1"                                  # ^[a-z0-9-]{1,32}$; names the local state DB
+host = "203.0.113.10"                            # hostname or IP of the VPS
+port = 22
+user = "vpsmcp"                                  # dedicated non-root user (see bootstrap --print-sudoers)
+key_path = "~/.ssh/vps_mcp_ed25519"              # omit to use ssh-agent; never shown in output
+# key_passphrase_env = "VPS_MCP_KEY_PASSPHRASE"  # env var holding the key passphrase, if any
+known_hosts_path = "~/.config/vps-mcp/known_hosts"  # must pin the host (vps-mcp trust-host)
+container_runtime = "docker"                     # docker | podman | none
+package_manager = "apt"                          # apt | dnf
+# allow_root = false                             # required (true) if user = "root"
+
+[policy]
+read_only = false                  # true refuses every state change
+health_stabilize_s = 10            # how long a service must stay healthy after a change
+log_default_lines = 200            # default get_service_logs line count (max 5000)
+min_free_disk_mb = 1024            # deployments refused below this free space
+audit_retention_days = 90          # audit rows older than this are purged
+revisions_kept = 5                 # config/version revisions kept per service
+secret_keys = ["*PASSWORD*", "*SECRET*", "*TOKEN*", "*KEY*"]  # masked in output and diffs
+remote_access_units = ["ssh", "sshd"]  # can never be stopped, disabled, changed or removed
+
+[policy.timeouts]
+control_s = 60                     # start/stop/restart/boot-start
+deploy_s = 600                     # deploy/update/configure/rollback/remove
+query_s = 15                       # status/logs/resources
+
+[policy.approved_sources]
+apt_origins = ["Ubuntu"]           # `o=` origins from `apt-cache policy` allowed for packages
+dnf_repos = []                     # repo ids allowed when package_manager = "dnf"
+image_prefixes = ["docker.io/library/", "ghcr.io/myorg/"]  # allowed container image prefixes
+
+# Initial allowlist. Services deployed through the server are added automatically.
+
+[[service]]
+name = "nginx"
+kind = "os"                        # os | container
+package = "nginx"                  # needed for update/remove
+protected = true                   # stop/restart/disable need confirm; can never be removed
+validate = "nginx"                 # built-in validator: nginx | sshd | caddy | haproxy
+activate = "reload"                # how config changes take effect: reload | restart
+config_files = [
+  { path = "/etc/nginx/nginx.conf", owner = "root", group = "root", mode = "0644" },
+]
+
+[[service]]
+name = "api"
+kind = "container"
+description = "Public API"

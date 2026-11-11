@@ -1,0 +1,56 @@
+[project]
+name = "vps-mcp"
+version = "0.1.0"
+description = "MCP server that manages systemd services and containers on a remote VPS over SSH"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.10",
+    "asyncssh>=2.14",
+    "pydantic>=2.6",
+]
+
+[project.scripts]
+vps-mcp = "vps_mcp.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vps_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["integration: requires a real VM (deselected by default)"]
+addopts = "-m 'not integration'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".specify"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC"]
+# E501: the formatter owns line length (long string literals are left intact).
+# ASYNC109: remote-command timeouts are explicit parameters by design.
+ignore = ["S101", "S603", "S108", "E501", "ASYNC109"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
+
+[tool.mypy]
+strict = true
+files = ["src/vps_mcp"]
+plugins = ["pydantic.mypy"]

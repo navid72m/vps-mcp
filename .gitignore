@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+*.db
+*.db-wal
+*.db-shm
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+*.egg-info/
+.DS_Store
+vps-mcp.sudoers
+tests/integration/vps-mcp.test.toml
