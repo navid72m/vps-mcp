@@ -110,6 +110,9 @@ uv run vps-mcp check-config --config ~/.config/vps-mcp/myvps.toml
 
 **5. Connect your MCP client** (next section). Once you trust it, set `read_only = false`.
 
+`check-config` also prints where the memory folder will be. It's created the first time a
+client starts the server.
+
 ## Connect your MCP client
 
 The server is a stdio program. Clients start it on demand and stop it when they're done, so
@@ -160,6 +163,25 @@ Keep the state-changing tools on "ask".
 In LM Studio, turn on `mcp/vps` in the chat's Program panel, and pick a model with
 tool-calling support.
 
+**OpenCode** (`~/.config/opencode/opencode.json`, or `opencode.json` in a project):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "vps": {
+      "type": "local",
+      "command": ["/absolute/path/to/uv", "run", "--directory", "/absolute/path/to/vps-mcp",
+                  "vps-mcp", "serve", "--config", "/absolute/path/to/.config/vps-mcp/myvps.toml"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Every client that uses the same `--config` shares the same [memory](#memory), so a note written
+in one client is in the next session's briefing in all of them.
+
 ## Using it
 
 Ask in plain language. The assistant picks the tools.
@@ -172,6 +194,8 @@ Ask in plain language. The assistant picks the tools.
 - "Update api to ghcr.io/myorg/api:1.2", which rolls back automatically if it comes up unhealthy
 - "Compare db_before with db_after and tell me if it's safe to promote" (migration tools)
 - "Plan the full-rehearsal job", then "start it", then later "how is the rehearsal going?" (jobs)
+- "Where are we with the migration?" in a brand-new session, answered from the briefing (memory)
+- "Remember as a decision: promote only when the verdict is safe_to_promote" (memory)
 - "Show the audit log"
 
 ## Service tools
@@ -402,6 +426,19 @@ share memory between machines, sync the folder or keep it in a **private** git r
 `check-config` warns if the folder is readable by others, or sits in a repository with a hosted
 remote.
 
+**Working with memory.** Assistants only record what you ask for, or what they judge durable.
+Some habits that help:
+
+- **End of a session:** say "save what we learned today to memory". The assistant writes
+  lessons, decisions and next steps as separate short notes.
+- **Close items:** say "mark the deploy-flaky issue as done". This sets `status: done`, which
+  drops the note from the open-issues section but keeps it searchable.
+- **Correct a wrong note:** tell the assistant, edit the file yourself, or archive it. Each
+  note records its `source` (the client that wrote it, or `operator` for hand edits). You can see
+  it with `memory_read` or in the file, so you can trace where a claim came from.
+- **Rarely-needed details:** keep them in notes. Only titles go into the briefing, and the full
+  text is fetched with `memory_read`, so a large memory stays cheap.
+
 **Safety**:
 
 - **Masking.** Secrets are masked before anything is written: `password=…`, credentials in URLs,
@@ -470,6 +507,7 @@ Validate with `vps-mcp check-config --config <file>`. The local audit/state data
 | `permission_denied` mentioning `stat` on `run_job` | The jobs sudoers rule is missing. Reinstall with `--with-migration --with-jobs`. |
 | `conflict` on `run_job`: "something is already running" | Only one job or rehearsal runs at a time. Check `job_status` / `rehearsal_status`. |
 | `conflict` on `run_job`: plan unknown/older than 30 min, or script changed | The error includes a fresh plan. Review it and confirm with its `plan_id`. |
+| A new session doesn't seem to know the memory | The client may ignore server instructions. Ask it to call `memory_briefing`, and check `memory_health`. |
 | `Memory unavailable` in the briefing | Run `memory_health`. The folder may be unwritable, or a symlink, which is refused. |
 | Job tools missing | No `[[migration.job]]` is declared, or the client hasn't restarted the server since you added one. |
 
@@ -498,7 +536,7 @@ Project layout:
 
 ```text
 src/vps_mcp/
-├── server.py            # MCP tools (services) + migration/jobs registration
+├── server.py            # MCP tools (services) + migration/jobs/memory registration, briefing
 ├── cli.py               # serve | check-config | trust-host | bootstrap
 ├── config/              # policy file models and loader
 ├── remote/              # SSH connection, fixed-template executor, redaction
