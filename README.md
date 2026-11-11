@@ -14,7 +14,22 @@ Desktop, LM Studio, …) manage **one VPS** safely:
 
 The server runs **on your laptop**. Your MCP client starts it over stdio, and it reaches the VPS
 over SSH. Nothing runs permanently on the VPS: it only needs a dedicated user and a sudoers file
-(rehearsals add transient systemd units and files under `/var/lib/vps-mcp`).
+(rehearsals and jobs add transient systemd units and files under `/var/lib/vps-mcp`).
+
+### What it gives your agent
+
+- **Structured answers instead of shell sessions.** "Is Odoo healthy?" is one tool call that
+  returns compact JSON, not a series of `ssh`/`grep`/`psql` commands and raw output. That saves
+  tokens, and smaller local models can do the job too.
+- **Safe changes.** Every state change previews first and needs `confirm=true`, and is
+  health-checked, rolled back on failure and audited.
+- **Migration judgement.** The agent can compare an upgraded database with its source and give a
+  `safe_to_promote` / `review_warnings` / `do_not_promote` verdict backed by findings.
+- **Long jobs it can watch.** The agent can start a declared multi-hour script, check its progress
+  later (even from another session) and get a final report.
+- **Hard limits from your config, not from the prompt.** There's no arbitrary command, SQL or
+  script. Only declared services, databases and jobs are reachable, the SSH service is untouchable,
+  and `read_only = true` turns off every write tool.
 
 Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (services),
 [`specs/002-odoo-migration-analysis/`](specs/002-odoo-migration-analysis/) (migration) and
@@ -106,8 +121,14 @@ Optionally, let the read-only tools run without approval prompts. Add this to
 ```json
 "mcp__vps__list_services", "mcp__vps__get_service_status", "mcp__vps__get_service_logs",
 "mcp__vps__get_resource_usage", "mcp__vps__get_service_config", "mcp__vps__get_audit_log",
-"mcp__vps__list_revisions"
+"mcp__vps__list_revisions",
+"mcp__vps__db_list", "mcp__vps__db_overview", "mcp__vps__db_modules", "mcp__vps__db_table",
+"mcp__vps__db_compare", "mcp__vps__get_report", "mcp__vps__list_reports",
+"mcp__vps__rehearsal_status", "mcp__vps__pipeline_last_run",
+"mcp__vps__list_jobs", "mcp__vps__job_status"
 ```
+
+The second and third lines only apply if you enabled migration analysis or declared jobs.
 
 Keep the state-changing tools on "ask".
 
@@ -140,6 +161,7 @@ Ask in plain language. The assistant picks the tools.
 - "Deploy redis:7 as a container named cache", which shows a preview first and asks you to confirm
 - "Update api to ghcr.io/myorg/api:1.2", which rolls back automatically if it comes up unhealthy
 - "Compare db_before with db_after and tell me if it's safe to promote" (migration tools)
+- "Plan the full-rehearsal job", then "start it", then later "how is the rehearsal going?" (jobs)
 - "Show the audit log"
 
 ## Service tools
@@ -306,7 +328,27 @@ environment variables. For example, `RUN_NAME` must match `^[a-z0-9_]{1,40}$` an
 >   other services. For example, a query already running in PostgreSQL, or a `docker exec`
 >   inside a container.
 
-Setup: `vps-mcp bootstrap --print-sudoers --with-migration --with-jobs` (adds `stat`).
+Optional keys:
+
+- `run_as`: defaults to `root`.
+- `log_globs`
+- `min_free_gb`: defaults to 5.
+- `max_runtime_h`: defaults to 24, at most 168.
+- `success_marker`
+- `outcome_patterns`: regexes with `step`/`status` groups, for progress lines the built-in rules
+  don't recognise.
+
+All of them are commented in [`examples/vps-mcp.toml`](examples/vps-mcp.toml). The full schema
+is in [`contracts/job-config.md`](specs/003-declared-jobs/contracts/job-config.md), and the
+tools are in [`contracts/job-tools.md`](specs/003-declared-jobs/contracts/job-tools.md).
+
+**Setup on the VPS:** regenerate and reinstall the sudoers file with jobs enabled. This adds
+`stat`, used for the script owner/mode check.
+
+```bash
+uv run vps-mcp bootstrap --print-sudoers --with-migration --with-jobs \
+  --config ~/.config/vps-mcp/myvps.toml > vps-mcp.sudoers
+```
 
 ## Security model
 
@@ -343,6 +385,7 @@ are errors. The main sections:
 | `[policy.approved_sources]` | `apt_origins`, `dnf_repos`, `image_prefixes` |
 | `[[service]]` | `name`, `kind` (`os`/`container`), `protected`, `package`, `config_files`, `validate`, `data_paths` |
 | `[migration]` | optional; see [Migration analysis](#migration-analysis-optional) |
+| `[[migration.job]]` | optional, up to 10; see [Declared jobs](#declared-jobs-optional) |
 
 Validate with `vps-mcp check-config --config <file>`. The local audit/state database lives in
 `~/.local/state/vps-mcp/<vps-name>.db`.
@@ -359,11 +402,15 @@ Validate with `vps-mcp check-config --config <file>`. The local audit/state data
 | Logs return 0 lines for nginx | nginx logs to `/var/log/nginx/*.log`, not the journal. Only journal and container logs are read. |
 | Tools missing in Claude Code | Start a new session after `claude mcp add`, then check with `/mcp`. |
 | `insufficient_disk` on `rehearse` | Free space on the VPS, or lower `[migration] min_free_gb` / `min_free_pct` knowingly. |
+| `permission_denied` mentioning `stat` on `run_job` | The jobs sudoers rule is missing. Reinstall with `--with-migration --with-jobs`. |
+| `conflict` on `run_job`: "something is already running" | Only one job or rehearsal runs at a time. Check `job_status` / `rehearsal_status`. |
+| `conflict` on `run_job`: plan unknown/older than 30 min, or script changed | The error includes a fresh plan. Review it and confirm with its `plan_id`. |
+| Job tools missing | No `[[migration.job]]` is declared, or the client hasn't restarted the server since you added one. |
 
 ## Development
 
 ```bash
-uv run pytest            # unit, contract and negative suites: no VPS needed (≈500 tests)
+uv run pytest            # unit, contract and negative suites: no VPS needed (≈590 tests)
 uv run ruff check && uv run ruff format --check && uv run mypy
 ```
 
@@ -371,7 +418,7 @@ uv run ruff check && uv run ruff format --check && uv run mypy
   cluster (`tests/fakepg.py`).
 - **Planted defects**: one suite plants defects and checks every one is caught with the right
   severity.
-- **Negative suites**: over 170 disallowed requests, each asserting that nothing was changed
+- **Negative suites**: over 200 disallowed requests, each asserting that nothing was changed
   remotely.
 
 **Integration tests** run against a disposable VM. Never use them on a production server.
@@ -385,7 +432,7 @@ Project layout:
 
 ```text
 src/vps_mcp/
-├── server.py            # MCP tools (services) + migration registration
+├── server.py            # MCP tools (services) + migration/jobs registration
 ├── cli.py               # serve | check-config | trust-host | bootstrap
 ├── config/              # policy file models and loader
 ├── remote/              # SSH connection, fixed-template executor, redaction
