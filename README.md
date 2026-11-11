@@ -198,6 +198,8 @@ in one client is in the next session's briefing in all of them.
 
 Ask in plain language. The assistant picks the tools.
 
+The full set of examples, covering every tool, is in [`docs/USAGE_EXAMPLES.md`](docs/USAGE_EXAMPLES.md).
+
 - "What's running on my VPS?"
 - "Show the last 100 lines of odoo19's logs containing 'error'"
 - "Which service uses the most memory?"

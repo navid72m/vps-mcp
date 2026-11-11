@@ -62,8 +62,12 @@ class KeychainToken:
         except (OSError, subprocess.SubprocessError):
             raise TokenMissing(self.service, self.account, "Keychain lookup failed") from None
         token = (proc.stdout or "").strip()
-        if proc.returncode != 0 or not token:
+        if proc.returncode != 0:
             raise TokenMissing(self.service, self.account, "no Keychain entry found")
+        if not token:
+            raise TokenMissing(
+                self.service, self.account, "the Keychain entry is empty; store it again"
+            )
         register_secret(token)
         self._token = token
         return token
