@@ -7,7 +7,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS managed_services (
@@ -142,6 +142,29 @@ CREATE TABLE IF NOT EXISTS service_observations (
 """
 
 
+# v5: GitLab deploys (specs/005-gitlab-integration, data-model.md §2).
+_SCHEMA_V5 = """
+CREATE TABLE IF NOT EXISTS gitlab_deploys (
+    deploy_id       TEXT PRIMARY KEY,
+    target          TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    plan_hash       TEXT NOT NULL,
+    plan_json       TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    commit_sha      TEXT,
+    ref             TEXT,
+    release_dir     TEXT,
+    previous_dir    TEXT,
+    pipeline_status TEXT,
+    error           TEXT,
+    audit_id        INTEGER,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_gitlab_deploys_target ON gitlab_deploys (target, created_at DESC);
+"""
+
+
 def utcnow() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
@@ -168,6 +191,7 @@ def open_db(path: str | Path) -> sqlite3.Connection:
         conn.executescript(_SCHEMA_V2)
         conn.executescript(_SCHEMA_V3)
         conn.executescript(_SCHEMA_V4)
+        conn.executescript(_SCHEMA_V5)
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return conn
 

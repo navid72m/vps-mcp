@@ -31,6 +31,7 @@ class AppContext:
     connection: VpsConnection | None = None
     migration: Any = None  # vps_mcp.migration.runtime.MigrationRuntime when [migration] is set
     memory: Any = None  # vps_mcp.memory.service.MemoryService when memory is enabled
+    gitlab: Any = None  # vps_mcp.gitlab.runtime.GitLabRuntime when [gitlab] is set
 
     @property
     def policy(self):  # type: ignore[no-untyped-def]

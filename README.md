@@ -11,6 +11,9 @@ Desktop, LM Studio, …) manage **one VPS** safely:
   copy.
 - **Declared jobs** (4 optional tools): run operator-owned scripts, such as a full rehearsal,
   through a plan → confirm → watch → report flow.
+- **GitLab** (15 optional tools): read code, history, issues, merge requests and CI of allowlisted
+  projects with your own token, from the macOS Keychain. Open issues and MRs, and deploy a reviewed
+  commit to the VPS with automatic rollback.
 - **Memory** (6 tools, on by default): a shared memory that every session in every MCP client
   gets when it connects. It holds generated facts about the VPS and its history, plus notes
   assistants write: decisions, lessons, issues and next steps.
@@ -30,6 +33,9 @@ over SSH. Nothing runs permanently on the VPS: it only needs a dedicated user an
   `safe_to_promote` / `review_warnings` / `do_not_promote` verdict backed by findings.
 - **Long jobs it can watch.** The agent can start a declared multi-hour script, check its progress
   later (even from another session) and get a final report.
+- **From GitLab to the VPS.** "Deploy tag v1.5 of the addons" shows the commit, changed files,
+  pipeline status and services affected. Once you confirm, that exact commit goes live; if a
+  service fails its health check, the previous version comes back automatically.
 - **A memory that follows you across clients.** A new session in Claude Code, OpenCode or LM
   Studio already knows the environment, the last verdicts and the open issues. What one session
   learns, the next one sees.
@@ -39,8 +45,9 @@ over SSH. Nothing runs permanently on the VPS: it only needs a dedicated user an
 
 Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (services),
 [`specs/002-odoo-migration-analysis/`](specs/002-odoo-migration-analysis/) (migration),
-[`specs/003-declared-jobs/`](specs/003-declared-jobs/) (jobs) and
-[`specs/004-agent-memory/`](specs/004-agent-memory/) (memory).
+[`specs/003-declared-jobs/`](specs/003-declared-jobs/) (jobs),
+[`specs/004-agent-memory/`](specs/004-agent-memory/) (memory) and
+[`specs/005-gitlab-integration/`](specs/005-gitlab-integration/) (GitLab).
 
 ---
 
@@ -53,6 +60,7 @@ Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (se
 - [Service tools](#service-tools)
 - [Migration analysis](#migration-analysis-optional)
 - [Declared jobs](#declared-jobs-optional)
+- [GitLab](#gitlab-optional)
 - [Memory](#memory)
 - [Security model](#security-model)
 - [Configuration reference](#configuration-reference)
@@ -138,7 +146,11 @@ Optionally, let the read-only tools run without approval prompts. Add this to
 "mcp__vps__rehearsal_status", "mcp__vps__pipeline_last_run",
 "mcp__vps__list_jobs", "mcp__vps__job_status",
 "mcp__vps__memory_briefing", "mcp__vps__memory_search", "mcp__vps__memory_read",
-"mcp__vps__memory_health"
+"mcp__vps__memory_health",
+"mcp__vps__gitlab_projects", "mcp__vps__gitlab_refs", "mcp__vps__gitlab_tree",
+"mcp__vps__gitlab_file", "mcp__vps__gitlab_commits", "mcp__vps__gitlab_compare",
+"mcp__vps__gitlab_list_items", "mcp__vps__gitlab_read_item", "mcp__vps__gitlab_pipelines",
+"mcp__vps__gitlab_job_log", "mcp__vps__deploy_targets"
 ```
 
 The migration and job lines only apply if you enabled those features.
@@ -196,6 +208,8 @@ Ask in plain language. The assistant picks the tools.
 - "Plan the full-rehearsal job", then "start it", then later "how is the rehearsal going?" (jobs)
 - "Where are we with the migration?" in a brand-new session, answered from the briefing (memory)
 - "Remember as a decision: promote only when the verdict is safe_to_promote" (memory)
+- "What changed in the addons since v1.4? Did the pipeline pass? Then deploy v1.5" (GitLab)
+- "Open an issue in addons with the blocking findings of the last rehearsal" (GitLab)
 - "Show the audit log"
 
 ## Service tools
@@ -384,6 +398,104 @@ uv run vps-mcp bootstrap --print-sudoers --with-migration --with-jobs \
   --config ~/.config/vps-mcp/myvps.toml > vps-mcp.sudoers
 ```
 
+## GitLab (optional)
+
+Add a `[gitlab]` section and the assistant can work with your GitLab, using **your own token**.
+It only reaches the projects you allowlist, and only with the permissions you give each one.
+
+**1. Store the token in the macOS Keychain.** This prompts for the token, so it never appears on
+a command line or in shell history:
+
+```bash
+security add-generic-password -U -s vps-mcp-gitlab -a <account> -w
+```
+
+| What you declare | Minimum token scope |
+|---|---|
+| `read` (and `deploy`, which only downloads archives) | `read_api` |
+| `write_issues`, `write_mrs`, `ci` | `api` |
+
+Prefer a project or group access token with the lowest role that works. The token can do
+whatever GitLab allows it to; vps-mcp only limits what assistants can do *through vps-mcp*.
+
+**2. Declare the projects and deploy targets** in the policy file. See the commented block in
+[`examples/vps-mcp.toml`](examples/vps-mcp.toml) and
+[`contracts/gitlab-config.md`](specs/005-gitlab-integration/contracts/gitlab-config.md). Then
+check that everything resolves:
+
+```bash
+uv run vps-mcp gitlab-check --config ~/.config/vps-mcp/myvps.toml
+```
+
+`gitlab-check` prints:
+
+- the token's user and scopes;
+- its expiry date, with a warning when that's under 14 days away;
+- whether each project is reachable;
+- what each deploy target currently has on the VPS.
+
+It never prints the token.
+
+| Purpose | Tools | Permission |
+|---|---|---|
+| Read | `gitlab_projects`, `gitlab_refs`, `gitlab_tree`, `gitlab_file`, `gitlab_commits`, `gitlab_compare` | `read` |
+| Issues and MRs | `gitlab_list_items`, `gitlab_read_item`; `gitlab_write` (create issue, comment, open MR, close an issue vps-mcp created) | `read`; `write_issues` / `write_mrs` |
+| CI | `gitlab_pipelines`, `gitlab_job_log`; `gitlab_ci` (retry, cancel, trigger on `trigger_refs`) | `read`; `ci` |
+| Deploy | `deploy_targets`, `deploy_from_gitlab`, `rollback_deploy` | `deploy` |
+
+Assistants address projects by the **alias** you give them, never by GitLab path or ID, so
+projects you didn't declare are unreachable. There is no merge tool at all. Closing issues needs
+`close_issues = true`, and by default only covers issues vps-mcp created; they carry a
+`_Posted via vps-mcp_` footer. Every write previews first, needs `confirm=true`, is audited, and
+is refused in read-only mode.
+
+**Deploying.** `deploy_from_gitlab` without `confirm` returns a plan with:
+
+- the exact commit;
+- the version currently deployed and any files edited on the VPS since;
+- the files that change;
+- the pipeline status;
+- the services that will restart;
+- free disk space.
+
+Confirming with the plan's `plan_id` deploys **exactly that commit**:
+
+1. Your laptop downloads the commit's archive from GitLab. The VPS never contacts GitLab, and
+   the token never leaves your laptop.
+2. The laptop rebuilds it as a clean tar. Unsafe paths, links leaving the tree, special files and
+   excluded paths are dropped, and ownership and modes are normalised.
+3. The tar is streamed over SSH into a new release directory on the VPS:
+
+   ```text
+   /var/lib/vps-mcp/deploys/<target>/releases/<time>-<sha12>/   files + MANIFEST.sha256 + marker
+   <destination>  ->  symlink to the active release
+   ```
+
+4. The symlink is switched in one step, so readers see either the old version or the new one.
+5. The declared services are restarted and health-checked, including `health_url` if you set it.
+   If anything is unhealthy, the previous release is switched back automatically.
+
+Releases you didn't deploy through vps-mcp are moved aside to `releases/pre-vps-mcp-<time>/`,
+never deleted. The last `keep_releases` versions are kept, and `rollback_deploy` switches back to
+one of them. Deploys are refused:
+
+- while another deploy of the same target is running;
+- while a declared job that uses the same services is running;
+- while a rehearsal is running.
+
+The deployed version of each target, and recent GitLab activity, appear in the
+[memory](#memory) briefing.
+
+**VPS setup** (as root, after reviewing the output):
+
+```bash
+uv run vps-mcp bootstrap --print-sudoers --with-gitlab > gitlab.sudoers   # tar, ln, mv, rm, ...
+```
+
+Add the result to `/etc/sudoers.d/vps-mcp`. These binaries are root-equivalent. As with the
+rest of vps-mcp, the guarantee is that the server only issues its own validated commands, on
+paths under `/var/lib/vps-mcp/deploys` and the destinations you declared.
+
 ## Memory
 
 Every session that connects to vps-mcp gets a **briefing** in the server's connect-time
@@ -487,6 +599,7 @@ are errors. The main sections:
 | `[[service]]` | `name`, `kind` (`os`/`container`), `protected`, `package`, `config_files`, `validate`, `data_paths` |
 | `[migration]` | optional; see [Migration analysis](#migration-analysis-optional) |
 | `[[migration.job]]` | optional, up to 10; see [Declared jobs](#declared-jobs-optional) |
+| `[gitlab]` | optional: `url`, `keychain_service`, `keychain_account`, `ca_bundle`, `timeout_s`, `max_archive_mb`, plus `[[gitlab.project]]` and `[[gitlab.deploy]]`; see [GitLab](#gitlab-optional) |
 | `[memory]` | optional: `enabled`, `path`, `writable`, `briefing_chars`, `max_note_bytes`, `max_notes`; see [Memory](#memory) |
 
 Validate with `vps-mcp check-config --config <file>`. The local audit/state database lives in
@@ -507,6 +620,11 @@ Validate with `vps-mcp check-config --config <file>`. The local audit/state data
 | `permission_denied` mentioning `stat` on `run_job` | The jobs sudoers rule is missing. Reinstall with `--with-migration --with-jobs`. |
 | `conflict` on `run_job`: "something is already running" | Only one job or rehearsal runs at a time. Check `job_status` / `rehearsal_status`. |
 | `conflict` on `run_job`: plan unknown/older than 30 min, or script changed | The error includes a fresh plan. Review it and confirm with its `plan_id`. |
+| `gitlab_token_missing` | Store the token: `security add-generic-password -U -s vps-mcp-gitlab -a <account> -w`. |
+| `gitlab_auth` | The token expired or was revoked. Store a new one with the same command. |
+| `gitlab_scope` | The token lacks a scope or role for that action. `gitlab-check` lists scope gaps. |
+| `gitlab_rate_limited` | GitLab's rate limit was hit. Retry after the given number of seconds. |
+| A deploy reports `rolled_back` | A service failed its health check after the switch. The previous release is active again; the response includes the service's last log lines. |
 | A new session doesn't seem to know the memory | The client may ignore server instructions. Ask it to call `memory_briefing`, and check `memory_health`. |
 | `Memory unavailable` in the briefing | Run `memory_health`. The folder may be unwritable, or a symlink, which is refused. |
 | Job tools missing | No `[[migration.job]]` is declared, or the client hasn't restarted the server since you added one. |
@@ -514,7 +632,7 @@ Validate with `vps-mcp check-config --config <file>`. The local audit/state data
 ## Development
 
 ```bash
-uv run pytest            # unit, contract and negative suites: no VPS needed (≈680 tests)
+uv run pytest            # unit, contract and negative suites: no VPS needed (≈870 tests)
 uv run ruff check && uv run ruff format --check && uv run mypy
 ```
 
@@ -522,7 +640,7 @@ uv run ruff check && uv run ruff format --check && uv run mypy
   cluster (`tests/fakepg.py`).
 - **Planted defects**: one suite plants defects and checks every one is caught with the right
   severity.
-- **Negative suites**: over 250 disallowed requests, each asserting that nothing was changed
+- **Negative suites**: over 300 disallowed requests, each asserting that nothing was changed
   remotely.
 
 **Integration tests** run against a disposable VM. Never use them on a production server.
@@ -537,7 +655,7 @@ Project layout:
 ```text
 src/vps_mcp/
 ├── server.py            # MCP tools (services) + migration/jobs/memory registration, briefing
-├── cli.py               # serve | check-config | trust-host | bootstrap
+├── cli.py               # serve | check-config | trust-host | bootstrap | gitlab-check
 ├── config/              # policy file models and loader
 ├── remote/              # SSH connection, fixed-template executor, redaction
 ├── backends/            # systemd + apt/dnf, docker/podman
@@ -545,6 +663,7 @@ src/vps_mcp/
 ├── store/               # SQLite: audit, revisions, deployed services, migration tables
 ├── migration/           # catalogue, snapshot/diff/risk, copies, runner, rehearsal, checks
 ├── jobs/                # declared jobs: integrity, params, launcher, progress, guard, report
-└── memory/              # agent memory: notes, folder I/O, masking, search, derived facts, briefing
+├── memory/              # agent memory: notes, folder I/O, masking, search, derived facts, briefing
+└── gitlab/              # GitLab: Keychain token, client, access, read/items/ci, archive, deploy
 specs/                   # speckit spec, plan, research, contracts, tasks per feature
 ```

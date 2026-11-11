@@ -1050,6 +1050,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "asyncssh" },
+    { name = "httpx2" },
     { name = "mcp" },
     { name = "pydantic" },
 ]
@@ -1065,6 +1066,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "asyncssh", specifier = ">=2.14" },
+    { name = "httpx2", specifier = ">=2.10.0" },
     { name = "mcp", specifier = ">=1.10" },
     { name = "pydantic", specifier = ">=2.6" },
 ]

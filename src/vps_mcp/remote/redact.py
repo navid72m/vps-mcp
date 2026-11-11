@@ -65,8 +65,18 @@ def mask_inline(text: str, globs: list[str]) -> str:
     return "".join(out)
 
 
+# Secrets that only become known at runtime (e.g. a GitLab token loaded from the Keychain).
+# Every scrub, audit record and log filter consults this registry in addition to its own list.
+_RUNTIME_SECRETS: list[str] = []
+
+
+def register_secret(secret: str) -> None:
+    if secret and len(secret) >= MIN_SECRET_LEN and secret not in _RUNTIME_SECRETS:
+        _RUNTIME_SECRETS.append(secret)
+
+
 def scrub(text: str, secrets: list[str]) -> str:
-    for s in secrets:
+    for s in (*secrets, *_RUNTIME_SECRETS):
         if s and len(s) >= MIN_SECRET_LEN:
             text = text.replace(s, MASK)
     return text
@@ -88,7 +98,7 @@ class RedactionFilter(logging.Filter):
         self.secrets = [s for s in secrets if s and len(s) >= MIN_SECRET_LEN]
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if self.secrets:
+        if self.secrets or _RUNTIME_SECRETS:
             record.msg = scrub(record.getMessage(), self.secrets)
             record.args = None
         return True

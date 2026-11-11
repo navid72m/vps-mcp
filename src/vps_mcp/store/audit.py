@@ -32,6 +32,13 @@ ACTIONS = (
     # agent memory (004)
     "memory_write",
     "memory_archive",
+    # GitLab (005); GitLab deploys reuse "deploy" with kind="gitlab"
+    "gitlab_issue",
+    "gitlab_comment",
+    "gitlab_mr",
+    "gitlab_close",
+    "gitlab_ci",
+    "rollback_deploy",
 )
 OUTCOMES = ("success", "failed", "refused", "timed_out", "unknown", "rolled_back", "preview")
 

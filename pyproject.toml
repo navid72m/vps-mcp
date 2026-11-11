@@ -8,6 +8,7 @@ dependencies = [
     "mcp>=1.10",
     "asyncssh>=2.14",
     "pydantic>=2.6",
+    "httpx2>=2.10.0",
 ]
 
 [project.scripts]

@@ -8,6 +8,7 @@ import logging
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 from vps_mcp.backends.validators import VALIDATOR_BINARIES
 
@@ -217,6 +218,17 @@ Cmnd_Alias VPSMCP_JOBS = /usr/bin/stat
 """
 
 
+GITLAB_SUDOERS = """
+# --- GitLab deploys (vps-mcp bootstrap --with-gitlab) ---
+# Root-equivalent like the rest of this file: vps-mcp only ever issues its own validated argv
+# (paths under /var/lib/vps-mcp/deploys and the declared destinations).
+Cmnd_Alias VPSMCP_DEPLOY = /usr/bin/tar, /usr/bin/mkdir, /usr/bin/ln, /usr/bin/mv, \\
+    /usr/bin/chown, /usr/bin/chmod, /usr/bin/rm, /usr/bin/readlink, /usr/bin/sha256sum, \\
+    /usr/bin/cat, /usr/bin/df, /usr/bin/find, /usr/bin/curl
+{user} ALL=(root) NOPASSWD: VPSMCP_DEPLOY
+"""
+
+
 def migration_sudoers(user: str, check_runners: list[tuple[str, str]]) -> str:
     out = MIGRATION_SUDOERS.format(user=user)
     for run_as, interpreter in sorted(set(check_runners)):
@@ -255,7 +267,38 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
         sys.stdout.write(migration_sudoers(args.user, runners))
     if args.with_jobs:
         sys.stdout.write(JOBS_SUDOERS.format(user=args.user))
+    if args.with_gitlab:
+        sys.stdout.write(GITLAB_SUDOERS.format(user=args.user))
     return 0
+
+
+def _cmd_gitlab_check(args: argparse.Namespace) -> int:
+    from vps_mcp.config.loader import ConfigError, load_config
+
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as exc:
+        for e in exc.errors:
+            print(f"ERROR {e}")
+        return 1
+    if cfg.gitlab is None:
+        print("ERROR no [gitlab] section in the config")
+        return 1
+    return asyncio.run(_gitlab_check(cfg, with_vps=not args.no_vps))
+
+
+async def _gitlab_check(cfg: Any, *, with_vps: bool, **build: Any) -> int:
+    from vps_mcp.gitlab.check import report
+    from vps_mcp.server import build_context
+
+    app = build_context(cfg, **build)
+    try:
+        lines, ok = await report(app.gitlab, with_vps=with_vps)
+    finally:
+        await app.gitlab.client.aclose()
+    for line in lines:
+        print(line)
+    return 0 if ok else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -297,8 +340,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print SQL creating the read-only analysis role",
     )
+    b.add_argument(
+        "--with-gitlab", action="store_true", help="append the GitLab deploy sudoers rules"
+    )
     b.add_argument("--config", help="policy file (adds sudoers rules for declared checks)")
     b.set_defaults(func=_cmd_bootstrap)
+
+    g = sub.add_parser("gitlab-check", help="check the GitLab token, scopes and projects")
+    g.add_argument("--config", required=True)
+    g.add_argument("--no-vps", action="store_true", help="skip reading deploy state on the VPS")
+    g.set_defaults(func=_cmd_gitlab_check)
     return p
 
 

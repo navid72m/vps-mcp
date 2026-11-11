@@ -28,6 +28,12 @@ MUTATING = [
     ("install", None),
     ("tee", None),
     ("rm", None),
+    ("tar", None),
+    ("mkdir", None),
+    ("ln", None),
+    ("mv", None),
+    ("chown", None),
+    ("chmod", None),
 ]
 DOCKER_SUB_MUTATING = {
     ("network", "create"),
@@ -56,6 +62,7 @@ class Call:
     stdin: str | None
     env: dict[str, str] | None
     user: str | None = None
+    stdin_bytes: bytes | None = None
 
 
 @dataclass
@@ -114,6 +121,14 @@ class FakeVps:
         self.sudo_denied: set[str] = set()
         self._tmp = 0
         self.pg: Any = None  # tests.fakepg.FakePg, attached by migration tests
+        # deploy emulation (feature 005)
+        self.links: dict[str, str] = {}
+        self.dirs: set[str] = {"/", "/opt", "/var", "/var/lib"}
+        self.modes: dict[str, str] = {}
+        self.owners: dict[str, str] = {}
+        self.http_ok: dict[str, bool] = {}
+        self.free_bytes = 50 * 1024**3
+        self._stdin_bytes: bytes | None = None
 
     # ------------------------------------------------------------------ helpers
 
@@ -159,12 +174,14 @@ class FakeVps:
         stdin: str | None = None,
         env: dict[str, str] | None = None,
         user: str | None = None,
+        stdin_bytes: bytes | None = None,
     ) -> CommandResult:
         if self.unreachable:
             raise VpsMcpError(
                 ErrorCategory.CONNECTION_FAILURE, "host unreachable", subtype="unreachable"
             )
-        self.calls.append(Call(list(argv), sudo, stdin, env, user))
+        self.calls.append(Call(list(argv), sudo, stdin, env, user, stdin_bytes))
+        self._stdin_bytes = stdin_bytes
         if (
             self.drop_connection_on
             and tuple(argv[: len(self.drop_connection_on)]) == self.drop_connection_on
@@ -319,6 +336,11 @@ class FakeVps:
         return ok("2\n")
 
     def _h_df(self, args: list[str], stdin: str | None) -> CommandResult:
+        if "-B1" in args:
+            return ok(
+                "Filesystem 1-blocks Used Available Capacity Mounted on\n"
+                f"/dev/vda1 100000000000 1000 {self.free_bytes} 50% /\n"
+            )
         if any(a.startswith("--output") for a in args):
             paths = [a for a in args if a.startswith("/")]
             lines = ["Avail Mounted on"] + [f"{self.free_mb.get(p, 20_000)}M {p}" for p in paths]
@@ -347,9 +369,130 @@ class FakeVps:
 
     def _h_rm(self, args: list[str], stdin: str | None) -> CommandResult:
         path = args[-1]
+        self.links.pop(path, None)
         for p in [p for p in self.files if p == path or p.startswith(path + "/")]:
             del self.files[p]
+        for d in [d for d in self.dirs if d == path or d.startswith(path + "/")]:
+            self.dirs.discard(d)
+        for ln in [ln for ln in self.links if ln.startswith(path + "/")]:
+            del self.links[ln]
         return ok()
+
+    # ------------------------------------------------------------ deploy emulation
+
+    def path_kind(self, path: str) -> str | None:
+        if path in self.links:
+            return "l"
+        if path in self.dirs or any(p.startswith(path + "/") for p in self.files):
+            return "d"
+        if path in self.files:
+            return "f"
+        return None
+
+    def _h_find(self, args: list[str], stdin: str | None) -> CommandResult:
+        path = args[0]
+        if "-mindepth" in args:  # list immediate subdirectories
+            kids = set()
+            for d in list(self.dirs) + list(self.files):
+                if d.startswith(path + "/"):
+                    head = d[len(path) + 1 :].split("/")[0]
+                    if f"{path}/{head}" in self.dirs or any(
+                        f.startswith(f"{path}/{head}/") for f in self.files
+                    ):
+                        kids.add(head)
+            if self.path_kind(path) is None:
+                return err(f"find: '{path}': No such file or directory")
+            return ok("".join(f"{k}\n" for k in sorted(kids)))
+        kind = self.path_kind(path)
+        if kind is None:
+            return err(f"find: '{path}': No such file or directory")
+        return ok(kind)
+
+    def _h_readlink(self, args: list[str], stdin: str | None) -> CommandResult:
+        path = args[-1]
+        if path not in self.links:
+            return err("", 1)
+        return ok(self.links[path] + "\n")
+
+    def _h_mkdir(self, args: list[str], stdin: str | None) -> CommandResult:
+        path = args[-1]
+        parts = path.strip("/").split("/")
+        for i in range(1, len(parts) + 1):
+            self.dirs.add("/" + "/".join(parts[:i]))
+        return ok()
+
+    def _h_tar(self, args: list[str], stdin: str | None) -> CommandResult:
+        import io
+        import tarfile
+
+        dest = args[args.index("-C") + 1]
+        assert self._stdin_bytes is not None, "tar expects binary stdin"
+        with tarfile.open(fileobj=io.BytesIO(self._stdin_bytes), mode="r:") as tar:
+            for m in tar:
+                full = f"{dest}/{m.name}"
+                assert ".." not in m.name.split("/") and not m.name.startswith("/"), m.name
+                if m.issym():
+                    self.links[full] = m.linkname
+                elif m.isdir():
+                    self.dirs.add(full)
+                elif m.isfile():
+                    fh = tar.extractfile(m)
+                    self.files[full] = (fh.read() if fh else b"").decode("utf-8", "replace")
+                    self.modes[full] = oct(m.mode)
+        return ok()
+
+    def _h_chown(self, args: list[str], stdin: str | None) -> CommandResult:
+        self.owners[args[-1]] = args[-2]
+        return ok()
+
+    def _h_chmod(self, args: list[str], stdin: str | None) -> CommandResult:
+        return ok()
+
+    def _h_ln(self, args: list[str], stdin: str | None) -> CommandResult:
+        target, link = args[-2], args[-1]
+        if self.path_kind(link) is not None:
+            return err(f"ln: failed to create symbolic link '{link}': File exists")
+        self.links[link] = target
+        return ok()
+
+    def _h_mv(self, args: list[str], stdin: str | None) -> CommandResult:
+        src, dst = args[-2], args[-1]
+        kind = self.path_kind(src)
+        if kind is None:
+            return err(f"mv: cannot stat '{src}'")
+        if kind == "l":
+            if self.path_kind(dst) == "d":
+                return err(f"mv: cannot overwrite directory '{dst}'")
+            self.links[dst] = self.links.pop(src)
+            return ok()
+        for p in [p for p in self.files if p.startswith(src + "/")]:
+            self.files[dst + p[len(src) :]] = self.files.pop(p)
+        for d in [d for d in self.dirs if d == src or d.startswith(src + "/")]:
+            self.dirs.discard(d)
+            self.dirs.add(dst + d[len(src) :])
+        for ln in [ln for ln in self.links if ln.startswith(src + "/")]:
+            self.links[dst + ln[len(src) :]] = self.links.pop(ln)
+        return ok()
+
+    def _h_sha256sum(self, args: list[str], stdin: str | None) -> CommandResult:
+        import hashlib
+
+        manifest = self.files.get(args[-1])
+        if manifest is None:
+            return err(f"sha256sum: {args[-1]}: No such file or directory")
+        bad = []
+        for line in manifest.splitlines():
+            if not line.strip():
+                continue
+            digest, path = line.split("  ", 1)
+            data = self.files.get(path)
+            if data is None or hashlib.sha256(data.encode()).hexdigest() != digest:
+                bad.append(f"{path}: FAILED")
+        return CommandResult(1 if bad else 0, "\n".join(bad) + ("\n" if bad else ""), "")
+
+    def _h_curl(self, args: list[str], stdin: str | None) -> CommandResult:
+        url = args[-1]
+        return ok() if self.http_ok.get(url, True) else err("curl: (22) 500", 22)
 
     def _h_nginx(self, args: list[str], stdin: str | None) -> CommandResult:
         target = args[args.index("-c") + 1] if "-c" in args else "/etc/nginx/nginx.conf"

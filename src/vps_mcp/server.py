@@ -491,6 +491,10 @@ def create_server(app: AppContext) -> MCPServer:
             from vps_mcp.jobs import tools as job_tools
 
             job_tools.register(mcp, app.migration, wrap, _session_id)
+    if app.gitlab is not None:
+        from vps_mcp.gitlab import tools as gitlab_tools
+
+        gitlab_tools.register(mcp, app.gitlab, wrap, _session_id)
     if app.memory is not None:
         from vps_mcp.memory import tools as memory_tools
 
@@ -502,7 +506,12 @@ def create_server(app: AppContext) -> MCPServer:
 
 
 def build_context(
-    config: AppConfig, *, executor: RemoteExecutor | None = None, db_path: str | Path | None = None
+    config: AppConfig,
+    *,
+    executor: RemoteExecutor | None = None,
+    db_path: str | Path | None = None,
+    gitlab_transport: Any = None,
+    keychain_reader: Any = None,
 ) -> AppContext:
     connection = None
     if executor is None:
@@ -526,6 +535,12 @@ def build_context(
             db=MigrationDb(executor, config.migration),
             store=MigrationStore(db),
         )
+    if config.gitlab is not None:
+        from vps_mcp.gitlab.runtime import build_runtime
+
+        app.gitlab = build_runtime(
+            app, config.gitlab, transport=gitlab_transport, keychain_reader=keychain_reader
+        )
     if config.memory.enabled and config.memory.path:
         from vps_mcp.memory.service import MemoryService
 
@@ -535,6 +550,6 @@ def build_context(
 
 def build_server(config_path: str | Path) -> MCPServer:
     config = load_config(config_path)
-    for name in ("vps_mcp", "asyncssh", "mcp"):
+    for name in ("vps_mcp", "asyncssh", "mcp", "httpx2", "httpcore"):
         install_redaction(logging.getLogger(name), config.secret_strings)
     return create_server(build_context(config))

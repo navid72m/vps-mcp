@@ -48,6 +48,7 @@ class RemoteExecutor(Protocol):
         stdin: str | None = None,
         env: dict[str, str] | None = None,
         user: str | None = None,
+        stdin_bytes: bytes | None = None,
     ) -> CommandResult: ...
 
 
@@ -79,6 +80,12 @@ def check_sudo_denied(result: CommandResult, argv: list[str]) -> None:
         )
 
 
+def _text(out: object) -> str:
+    if isinstance(out, bytes | bytearray):
+        return bytes(out).decode("utf-8", errors="replace")
+    return str(out or "")
+
+
 class SshExecutor:
     def __init__(self, connection: VpsConnection) -> None:
         self.connection = connection
@@ -92,15 +99,24 @@ class SshExecutor:
         stdin: str | None = None,
         env: dict[str, str] | None = None,
         user: str | None = None,
+        stdin_bytes: bytes | None = None,
     ) -> CommandResult:
+        if stdin is not None and stdin_bytes is not None:
+            raise ValueError("stdin and stdin_bytes are mutually exclusive")
         command = render_command(argv, sudo=sudo, env=env, user=user)
         # Failures here happen before anything ran on the VPS: plain connection_failure.
         conn = await self.connection.get()
         try:
-            proc = await asyncio.wait_for(
-                conn.run(command, input=stdin, check=False, encoding="utf-8", errors="replace"),
-                timeout,
-            )
+            if stdin_bytes is not None:
+                # Binary input (e.g. a tar stream): raw bytes in, decode the output ourselves.
+                proc = await asyncio.wait_for(
+                    conn.run(command, input=stdin_bytes, check=False, encoding=None), timeout
+                )
+            else:
+                proc = await asyncio.wait_for(
+                    conn.run(command, input=stdin, check=False, encoding="utf-8", errors="replace"),
+                    timeout,
+                )
         except TimeoutError:
             raise VpsMcpError(
                 ErrorCategory.TIMED_OUT, f"'{argv[0]}' did not finish within {timeout:.0f}s"
@@ -119,7 +135,7 @@ class SshExecutor:
             # Channel closed without an exit status: the connection dropped mid-command.
             self.connection.mark_lost()
             raise ConnectionLost()
-        result = CommandResult(status, str(proc.stdout or ""), str(proc.stderr or ""))
+        result = CommandResult(status, _text(proc.stdout), _text(proc.stderr))
         if sudo:
             check_sudo_denied(result, argv)
         return result

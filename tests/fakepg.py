@@ -275,7 +275,9 @@ class FakePg:
 
     def _h_sha256sum(
         self, argv: list[str], stdin: str | None, env: Any, user: str | None
-    ) -> CommandResult:
+    ) -> CommandResult | None:
+        if "-c" in argv:
+            return None  # manifest checks are emulated by FakeVps
         out = []
         for path in argv[argv.index("--") + 1 :]:
             if path in self.vps.files:

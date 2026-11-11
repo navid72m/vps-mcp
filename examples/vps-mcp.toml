@@ -135,3 +135,32 @@ description = "Public API"
 # briefing_chars = 6000        # size of the briefing sent when a session connects (~1,500 words)
 # max_note_bytes = 8192
 # max_notes = 500
+
+# ------------------------------------------------------------------ GitLab (optional)
+# Read code/issues/CI of allowlisted projects and deploy reviewed versions to the VPS
+# (specs/005-gitlab-integration). The token lives in the macOS Keychain, never in this file:
+#   security add-generic-password -U -s vps-mcp-gitlab -a deploy-bot -w   (prompts for it)
+# [gitlab]
+# url = "https://gitlab.example.com"
+# keychain_service = "vps-mcp-gitlab"
+# keychain_account = "deploy-bot"
+#
+# [[gitlab.project]]
+# alias = "addons"                       # the name assistants use
+# id = 1234                               # or: path = "mygroup/odoo-addons"
+# permissions = ["read", "write_issues", "ci", "deploy"]
+# close_issues = true                     # only issues vps-mcp created, unless close_any_issue
+# trigger_refs = ["main"]
+#
+# [[gitlab.deploy]]
+# name = "addons"
+# project = "addons"
+# refs = ["tag:v*", "branch:main"]
+# destination = "/opt/odoo/custom-addons" # becomes a symlink to the active release
+# owner = "odoo"
+# group = "odoo"
+# exclude = [".gitlab-ci.yml", "tests/**"]
+# services = ["odoo"]                     # declared [[service]] names restarted after a deploy
+# health_url = "http://127.0.0.1:8069/web/login"
+# require_pipeline_success = true
+# keep_releases = 3

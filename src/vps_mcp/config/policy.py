@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
+from vps_mcp.gitlab.config import GitLabSettings
 from vps_mcp.migration.config import MigrationSettings
 from vps_mcp.models.inputs import AbsPath, PackageName, ServiceKind, ServiceName
 
@@ -167,6 +168,7 @@ class AppConfig(_Strict):
     service: list[ServiceDeclaration] = Field(default_factory=list)
     migration: MigrationSettings | None = None
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    gitlab: GitLabSettings | None = None
 
     @model_validator(mode="after")
     def _cross_checks(self) -> AppConfig:
@@ -192,6 +194,19 @@ class AppConfig(_Strict):
                     if unit_base(name) in protected_units:
                         raise ValueError(
                             f"job {job.name}: remote-access service '{name}' can never be declared"
+                        )
+        if self.gitlab is not None:
+            declared = {svc.name for svc in self.service}
+            for target in self.gitlab.deploy:
+                for name in target.services:
+                    if name not in declared:
+                        raise ValueError(
+                            f"deploy {target.name}: service '{name}' is not a declared [[service]]"
+                        )
+                    if unit_base(name) in protected_units:
+                        raise ValueError(
+                            f"deploy {target.name}: remote-access service '{name}' can never be "
+                            "restarted by a deploy"
                         )
         return self
 

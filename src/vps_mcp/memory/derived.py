@@ -126,7 +126,7 @@ def outcomes(
     conn: sqlite3.Connection, jobs: int = 3, rehearsals: int = 3, reports: int = 5
 ) -> list[str]:
     """Latest outcomes as Markdown bullet lines, newest first per kind."""
-    lines: list[str] = []
+    lines: list[str] = deployed(conn) + gitlab_activity(conn)
     jrows = conn.execute(
         "SELECT run_id, job, status, started_at, ended_at, report_id FROM job_runs "
         "WHERE status != 'planned' ORDER BY created_at DESC LIMIT ?",
@@ -187,3 +187,40 @@ def changes(conn: sqlite3.Connection, n: int = 20) -> list[str]:
         + f": {r['outcome']}"
         for r in rows
     ]
+
+
+def deployed(conn: sqlite3.Connection) -> list[str]:
+    """Latest deploy (or rollback) per GitLab deploy target (feature 005)."""
+    rows = conn.execute(
+        "SELECT target, kind, status, commit_sha, ref, updated_at FROM gitlab_deploys d "
+        "WHERE status IN ('succeeded', 'rolled_back', 'failed') AND updated_at = ("
+        "SELECT MAX(updated_at) FROM gitlab_deploys WHERE target = d.target "
+        "AND status IN ('succeeded', 'rolled_back', 'failed')) ORDER BY target"
+    ).fetchall()
+    out = []
+    for r in rows:
+        what = "rollback to" if r["kind"] == "rollback" else "deployed"
+        ref = f" ({r['ref']})" if r["ref"] else ""
+        out.append(
+            f"- target {r['target']}: {what} {str(r['commit_sha'] or '?')[:12]}{ref} "
+            f"{r['status']} ({_day(r['updated_at'])})"
+        )
+    return out
+
+
+def gitlab_activity(conn: sqlite3.Connection, n: int = 5) -> list[str]:
+    rows = conn.execute(
+        "SELECT ts, action, service_name, params_json, outcome FROM audit_records "
+        "WHERE action LIKE 'gitlab_%' AND outcome = 'success' ORDER BY id DESC LIMIT ?",
+        (n,),
+    ).fetchall()
+    out = []
+    for r in rows:
+        try:
+            params = json.loads(r["params_json"] or "{}")
+        except ValueError:
+            params = {}
+        ref = params.get("web_ref") or params.get("project") or r["service_name"] or ""
+        act = params.get("action") or r["action"]
+        out.append(f"- gitlab {act} {ref} ({_day(r['ts'])})")
+    return out
