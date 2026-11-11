@@ -16,7 +16,7 @@ FAILED_START_LOG_LINES = 20
 async def _attach_logs(ctx: AppContext, decl: ServiceDeclaration, err: VpsMcpError) -> None:
     try:
         entries = await ctx.backend(decl.kind).logs(decl, FAILED_START_LOG_LINES, None, None)
-        err.extra["logs"] = [f"{e.timestamp.isoformat()} {e.message}" for e in entries]
+        err.extra["logs"] = [e.render() for e in entries]
     except Exception:  # noqa: BLE001, S110 - never mask the original failure
         pass
 

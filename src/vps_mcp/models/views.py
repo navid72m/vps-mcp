@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -59,7 +59,20 @@ class ServiceStatus(BaseModel):
     health: str | None = None  # container healthcheck status, when one is defined
 
     def to_dict(self) -> dict[str, Any]:
-        return self.model_dump(mode="json", exclude_none=True)
+        """Compact form for tool output: omit nulls and default flags, shorten digests."""
+        d: dict[str, Any] = self.model_dump(mode="json", exclude_none=True)
+        for key, default in (
+            ("pending_reconciliation", False),
+            ("protected", False),
+            ("networks", []),
+        ):
+            if d.get(key) == default:
+                d.pop(key, None)
+        version = d.get("version")
+        if isinstance(version, str) and "@sha256:" in version:
+            image, digest = version.split("@sha256:", 1)
+            d["version"] = f"{image}@sha256:{digest[:12]}"
+        return d
 
 
 class LogEntry(BaseModel):
@@ -67,9 +80,15 @@ class LogEntry(BaseModel):
     message: str
     stream: Literal["stdout", "stderr", "journal"]
 
+    def render(self) -> str:
+        """One compact line: UTC timestamp, stderr marker when relevant, message."""
+        ts = self.timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
+        marker = " [stderr]" if self.stream == "stderr" else ""
+        return f"{ts}{marker} {self.message}"
+
 
 class LogResult(BaseModel):
-    entries: list[LogEntry]
+    lines: list[str]  # "YYYY-MM-DD HH:MM:SS [stderr] message", UTC, oldest first
     returned: int
     truncated: bool
 

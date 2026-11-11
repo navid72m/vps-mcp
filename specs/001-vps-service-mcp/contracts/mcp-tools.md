@@ -12,6 +12,7 @@ The types `ServiceStatus`, `LogEntry`, `ResourceSnapshot`, and the audit fields 
 - **Error envelope**: errors return `isError: true` with structured content `{ "ok": false, "error": { "category": <ErrorCategory>, "subtype"?: str, "message": str, "last_known_state"?: ServiceStatus } }`.
 - **Action envelope**: state-changing tools also return `audit_id` and `outcome`. The `outcome` values are `success`, `failed`, `timed_out`, `unknown`, `rolled_back`, and `preview`.
 - **Credentials**: no tool output ever contains credentials (FR-033).
+- **Compact output**: responses are compact JSON. In `ServiceStatus`, null fields and default flags (`protected: false`, `pending_reconciliation: false`, `networks: []`) are omitted, and image digests are shortened to 12 hex characters.
 
 ---
 
@@ -33,7 +34,7 @@ A service that is in the managed set but missing on the VPS returns `ok` with `s
 
 ### `get_service_logs`
 - **In**: `{ service, kind?, lines?: 1..5000 = 200, since?: str, until?: str, keyword?: str(≤200) }`
-- **Out**: `{ entries: LogEntry[], returned: int, truncated: bool }`. Entries are ordered oldest first, newest last.
+- **Out**: `{ lines: string[], returned: int, truncated: bool }`. Each line is `YYYY-MM-DD HH:MM:SS [stderr] message` in UTC (the `[stderr]` marker only for container stderr), ordered oldest first, newest last. Plain lines instead of objects keep responses small.
 - **Errors**: as for `get_service_status`.
 - **Spec**: FR-022, Story 3
 

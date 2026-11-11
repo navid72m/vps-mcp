@@ -97,7 +97,11 @@ def _session_id(ctx: Context | None) -> str | None:
 def _result(payload: dict[str, Any], *, is_error: bool, secrets: list[str]) -> CallToolResult:
     clean = scrub_obj(payload, secrets)
     return CallToolResult(
-        content=[TextContent(text=json.dumps(clean, indent=2, default=str))],
+        content=[
+            TextContent(
+                text=json.dumps(clean, separators=(",", ":"), ensure_ascii=False, default=str)
+            )
+        ],
         structured_content=clean,
         is_error=is_error,
     )

@@ -76,7 +76,7 @@ async def test_unknown_outcome_then_reconciled(client, vps, app):
     rec = (await call(client, "get_audit_log"))["records"][0]
     assert rec["outcome"] == "unknown" and rec["reconciled_state"] == "running"
     status = await call(client, "get_service_status", service="worker")
-    assert status["service"]["pending_reconciliation"] is False
+    assert "pending_reconciliation" not in status["service"]  # default flags are omitted
 
 
 async def test_read_only_mode_blocks_control(vps, db_path, monkeypatch):

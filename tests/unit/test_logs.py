@@ -45,8 +45,9 @@ async def test_default_cap_and_truncation(client, vps):
     add_logs(vps, 500)
     data = await call(client, "get_service_logs", service="worker")
     assert data["returned"] == 200 and data["truncated"] is True
-    assert data["entries"][-1]["message"].startswith("line 499")  # newest last
-    stamps = [e["timestamp"] for e in data["entries"]]
+    assert data["lines"][-1].endswith("line 499")  # newest last
+    assert data["lines"][0].startswith("2026-11-11 10:05:00 ")  # compact UTC timestamp
+    stamps = [line[:19] for line in data["lines"]]
     assert stamps == sorted(stamps)
 
 
@@ -59,7 +60,7 @@ async def test_line_limit_not_truncated(client, vps):
 async def test_keyword_is_literal_and_case_insensitive(client, vps):
     add_logs(vps, 100)
     data = await call(client, "get_service_logs", service="worker", keyword="get /X 404", lines=5)
-    assert data["returned"] == 5 and all("404" in e["message"] for e in data["entries"])
+    assert data["returned"] == 5 and all("404" in line for line in data["lines"])
     data = await call(client, "get_service_logs", service="worker", keyword=".*")
     assert data["returned"] == 0
 
@@ -67,7 +68,7 @@ async def test_keyword_is_literal_and_case_insensitive(client, vps):
 async def test_container_logs_and_time_filters(client, vps):
     vps.containers["api"].logs = [(T0, "stdout", "hello"), (T0, "stderr", "oops")]
     data = await call(client, "get_service_logs", service="api", since="15m")
-    assert {e["stream"] for e in data["entries"]} == {"stdout", "stderr"}
+    assert data["lines"] == ["2026-11-11 10:00:00 hello", "2026-11-11 10:00:00 [stderr] oops"]
     since = [c.argv for c in vps.calls if c.argv[:2] == ["docker", "logs"]][-1]
     assert "--since" in since
 

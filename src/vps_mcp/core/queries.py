@@ -102,7 +102,7 @@ async def get_service_logs(
     kept, truncated = filter_entries(entries, kw, n)
     if kw and hit_cap:
         truncated = True  # older matching lines may exist beyond the scan window
-    result = LogResult(entries=kept, returned=len(kept), truncated=truncated)
+    result = LogResult(lines=[e.render() for e in kept], returned=len(kept), truncated=truncated)
     return dict(result.model_dump(mode="json"))
 
 
