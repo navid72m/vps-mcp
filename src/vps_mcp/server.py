@@ -482,6 +482,10 @@ def create_server(app: AppContext) -> MCPServer:
         from vps_mcp.migration import tools as migration_tools
 
         migration_tools.register(mcp, app.migration, wrap, _session_id)
+        if app.migration.settings.job:
+            from vps_mcp.jobs import tools as job_tools
+
+            job_tools.register(mcp, app.migration, wrap, _session_id)
     return mcp
 
 

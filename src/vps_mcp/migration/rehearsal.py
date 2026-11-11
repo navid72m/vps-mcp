@@ -71,6 +71,7 @@ async def _active_units(rt: MigrationRuntime) -> list[str]:
             "--no-legend",
             "--state=active",
             "vps-mcp-rehearsal-*",
+            "vps-mcp-job-*",
         ],
         timeout=30.0,
     )

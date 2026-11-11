@@ -172,6 +172,13 @@ GRANT pg_read_all_data, pg_read_all_stats TO {user};
 """
 
 
+JOBS_SUDOERS = """
+# --- declared jobs (vps-mcp bootstrap --with-jobs): stat for script owner/mode checks ---
+Cmnd_Alias VPSMCP_JOBS = /usr/bin/stat
+{user} ALL=(root) NOPASSWD: VPSMCP_JOBS
+"""
+
+
 def migration_sudoers(user: str, check_runners: list[tuple[str, str]]) -> str:
     out = MIGRATION_SUDOERS.format(user=user)
     for run_as, interpreter in sorted(set(check_runners)):
@@ -208,6 +215,8 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
                     if c.run_as not in ("vpsmcp",)
                 ]
         sys.stdout.write(migration_sudoers(args.user, runners))
+    if args.with_jobs:
+        sys.stdout.write(JOBS_SUDOERS.format(user=args.user))
     return 0
 
 
@@ -239,6 +248,11 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--pm", default="apt", choices=["apt", "dnf"])
     b.add_argument(
         "--with-migration", action="store_true", help="append the database-migration sudoers rules"
+    )
+    b.add_argument(
+        "--with-jobs",
+        action="store_true",
+        help="with --with-migration: append the declared-jobs sudoers rule (stat)",
     )
     b.add_argument(
         "--print-migration-sql",

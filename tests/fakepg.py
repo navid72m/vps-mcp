@@ -8,6 +8,7 @@ sha256sum/ls/tail/grep through here. Catalogue queries are recognised by identit
 from __future__ import annotations
 
 import copy as copymod
+import fnmatch
 import hashlib
 import json
 import re
@@ -116,6 +117,12 @@ class FakePg:
             str, Callable[[list[str], dict[str, str], FakePg], tuple[int, str]]
         ] = {}
         self.check_calls: list[dict[str, Any]] = []
+        # declared jobs (003)
+        self.file_meta: dict[str, tuple[str, str, int]] = {}  # path -> (owner, mode, mtime)
+        self.processes: dict[str, list[int]] = {}  # script path -> pids started by hand
+        self.job_units: dict[str, dict[str, Any]] = {}
+        self.job_effect: Callable[[dict[str, Any], FakePg], int | None] | None = None
+        self.job_autorun = True
 
     # ------------------------------------------------------------------ helpers
 
@@ -286,7 +293,15 @@ class FakePg:
     def _h_tail(
         self, argv: list[str], stdin: str | None, env: Any, user: str | None
     ) -> CommandResult:
+        if "-c" in argv:
+            start = int(argv[argv.index("-c") + 1].lstrip("+"))
+            path = argv[-1]
+            if path not in self.vps.files:
+                return fail(f"tail: cannot open '{path}'")
+            return ok(self.vps.files[path].encode()[start - 1 :].decode())
         n = int(argv[argv.index("-n") + 1])
+        if argv[-1] not in self.vps.files:
+            return fail(f"tail: cannot open '{argv[-1]}'")
         text = self.vps.files.get(argv[-1], "")
         return ok("\n".join(text.splitlines()[-n:]) + "\n")
 
@@ -313,13 +328,30 @@ class FakePg:
     ) -> CommandResult | None:
         verb = argv[1]
         if verb == "list-units":
-            return ok(
-                "".join(
-                    f"{u}.service loaded active running\n"
-                    for u, s in self.units.items()
-                    if s["active"]
+            pats = [a for a in argv[2:] if not a.startswith("-")]
+            active = [u for u, st in self.units.items() if st["active"]]
+            active += [u for u, st in self.job_units.items() if st["active"]]
+            if pats:
+                active = [u for u in active if any(fnmatch.fnmatchcase(u, p) for p in pats)]
+            return ok("".join(f"{u}.service loaded active running\n" for u in active))
+        if argv[-1] in self.job_units:
+            ju = self.job_units[argv[-1]]
+            if verb == "show":
+                return ok(
+                    f"ActiveState={'active' if ju['active'] else 'inactive'}\n"
+                    f"SubState={'running' if ju['active'] else 'dead'}\n"
+                    f"Result={ju.get('result') or 'success'}\n"
+                    "ExecMainStartTimestamp=Wed 2026-11-11 10:00:00 UTC\n"
+                    "ExecMainExitTimestamp=\n"
                 )
-            )
+            if verb == "stop":
+                ju["active"] = False
+                ju["result"] = "signal"
+                self.processes.pop(ju["script"], None)
+                return ok()
+            if verb == "reset-failed":
+                ju["reset"] = True
+                return ok()
         if verb == "show" and "ActiveState" in argv:
             u = self.units.get(argv[-1])
             return ok(("active" if u and u["active"] else "inactive") + "\n")
@@ -340,6 +372,8 @@ class FakePg:
         if "--unit" not in argv:
             return fail("unit required")
         unit = argv[argv.index("--unit") + 1]
+        if unit.startswith("vps-mcp-job-"):
+            return self._start_job(unit, argv)
         if unit.startswith("vps-mcp-expire-"):
             self.units[unit] = {"active": False, "timer": argv}
             return ok()
@@ -349,6 +383,66 @@ class FakePg:
         if self.run_runner_synchronously:
             self.simulate(unit)
         return ok(f"Running as unit: {unit}.service\n")
+
+    def _start_job(self, unit: str, argv: list[str]) -> CommandResult:
+        env = dict(
+            a.removeprefix("--setenv=").split("=", 1) for a in argv if a.startswith("--setenv=")
+        )
+        uid = next((a.split("=", 1)[1] for a in argv if a.startswith("--uid=")), None)
+        script, exit_file = argv[-2], argv[-1]
+        run = {
+            "unit": unit,
+            "argv": argv,
+            "env": env,
+            "uid": uid,
+            "script": script,
+            "exit_file": exit_file,
+            "active": True,
+            "result": None,
+        }
+        self.job_units[unit] = run
+        if self.job_autorun:
+            self.finish_job(unit)
+        return ok(f"Running as unit: {unit}.service\n")
+
+    def finish_job(self, unit: str, code: int | None = None, result: str | None = None) -> None:
+        run = self.job_units[unit]
+        if code is None and self.job_effect is not None:
+            code = self.job_effect(run, self)
+        if result == "timeout":
+            run.update(active=False, result="timeout")
+            return
+        code = 0 if code is None else code
+        self.vps.files[run["exit_file"]] = f"{code}\n"
+        run.update(active=False, result="success" if code == 0 else "exit-code")
+
+    def _h_stat(
+        self, argv: list[str], stdin: str | None, env: Any, user: str | None
+    ) -> CommandResult:
+        fmt = argv[argv.index("-c") + 1]
+        paths = argv[argv.index("--") + 1 :]
+        out = []
+        for path in paths:
+            if fmt == "%s":
+                if path not in self.vps.files:
+                    return fail(f"stat: cannot statx '{path}': No such file or directory")
+                out.append(str(len(self.vps.files[path].encode())))
+            else:
+                meta = self.file_meta.get(path)
+                if meta is None:
+                    continue
+                owner, mode, mtime = meta
+                out.append(f"{owner} {mode} {mtime} {path}")
+        code = 0 if len(out) == len(paths) else 1
+        return CommandResult(code, "\n".join(out) + ("\n" if out else ""), "")
+
+    def _h_pgrep(
+        self, argv: list[str], stdin: str | None, env: Any, user: str | None
+    ) -> CommandResult:
+        script = argv[-1]
+        pids = list(self.processes.get(script, []))
+        pids += [4242 for ju in self.job_units.values() if ju["active"] and ju["script"] == script]
+        return CommandResult(0 if pids else 1, "".join(f"{p}\n" for p in pids), "")
 
     def run_abs(
         self, argv: list[str], stdin: str | None, env: dict[str, str] | None, user: str | None

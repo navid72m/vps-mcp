@@ -9,13 +9,16 @@ Desktop, LM Studio, …) manage **one VPS** safely:
 - **Migration analysis** (13 optional tools): inspect Odoo/PostgreSQL databases, compare two
   databases into a risk report with a verdict, and rehearse an upgrade pipeline on a disposable
   copy.
+- **Declared jobs** (4 optional tools): run operator-owned scripts, such as a full rehearsal,
+  through a plan → confirm → watch → report flow.
 
 The server runs **on your laptop**. Your MCP client starts it over stdio, and it reaches the VPS
 over SSH. Nothing runs permanently on the VPS: it only needs a dedicated user and a sudoers file
 (rehearsals add transient systemd units and files under `/var/lib/vps-mcp`).
 
-Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (services) and
-[`specs/002-odoo-migration-analysis/`](specs/002-odoo-migration-analysis/) (migration).
+Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (services),
+[`specs/002-odoo-migration-analysis/`](specs/002-odoo-migration-analysis/) (migration) and
+[`specs/003-declared-jobs/`](specs/003-declared-jobs/) (jobs).
 
 ---
 
@@ -27,6 +30,7 @@ Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (se
 - [Using it](#using-it)
 - [Service tools](#service-tools)
 - [Migration analysis](#migration-analysis-optional)
+- [Declared jobs](#declared-jobs-optional)
 - [Security model](#security-model)
 - [Configuration reference](#configuration-reference)
 - [Troubleshooting](#troubleshooting)
@@ -253,6 +257,57 @@ and in the commented section of [`examples/vps-mcp.toml`](examples/vps-mcp.toml)
 - **Disk**: a rehearsal needs about 1.3× the source size free plus
   `max(min_free_gb, min_free_pct%)`. It is refused up front otherwise.
 
+## Declared jobs (optional)
+
+Some long scripts can't be rehearsed on a copy, for example a full rehearsal that drops and
+rebuilds a test database from a dump, runs the deploy script, then compares the result. You can
+declare such a script as a **job** under `[[migration.job]]`. Four tools then let the assistant
+run it safely: `list_jobs`, `run_job`, `job_status` and `cancel_job`.
+
+```toml
+[[migration.job]]
+name = "full-rehearsal"
+script = "/root/full_rehearsal.sh"            # root-owned, not group/other-writable
+progress_file = "/root/rehearsal_logs/STEPS.txt"
+report_file = "/root/rehearsal_logs/compare.md"
+may_modify = ["shop_19_test"]                 # may be dropped and rebuilt
+services = ["odoo-test"]                      # may be stopped
+source = "shop_17_dump"                       # compared with result at the end
+result = "shop_19_test"
+```
+
+How a job runs:
+
+1. **Plan**: `run_job` without `confirm` shows a plan: the script's fingerprint, owner and
+   mode; which databases it will rebuild and which services it may stop; parameters; and free
+   disk. Nothing runs yet.
+2. **Run**: confirming with the plan's `plan_id` re-checks everything, then starts the script
+   as-is in a transient systemd unit. The job has a runtime cap, and if it's cancelled its whole
+   process tree is killed. It keeps running if your client disconnects. Only one job or
+   rehearsal runs at a time.
+3. **Status**: `job_status` reads the job's progress file. It only reads lines written since
+   this run started, because many scripts append to the same file across runs. It recognises
+   outcomes such as `EXIT n`, `rc=n`, `ok`, `FAILED`, `STOP…`, and the success marker
+   (`ALL DONE` by default).
+4. **Guard**: writes to any database the job doesn't declare, an undeclared database
+   disappearing, or a change to any undeclared managed service are all reported as blocking
+   findings.
+5. **Report**: when the job ends, one report combines its step outcomes, an excerpt of its own
+   report file and a `db_compare` of `source` against `result`, and gives a verdict.
+
+**Parameters** are declared with a name and a validation pattern, and are passed only as
+environment variables. For example, `RUN_NAME` must match `^[a-z0-9_]{1,40}$` and defaults to
+`rehearsal_{date:%Y%m%d_%H%M}`.
+
+> **Limits:**
+> - **Not confined.** A job is your own script running as root. The server controls *what*
+>   may start and *when*, and **detects** undeclared changes; it doesn't prevent them.
+> - **Cancel has limits.** Cancelling stops the job's process tree, but not work it handed to
+>   other services. For example, a query already running in PostgreSQL, or a `docker exec`
+>   inside a container.
+
+Setup: `vps-mcp bootstrap --print-sudoers --with-migration --with-jobs` (adds `stat`).
+
 ## Security model
 
 1. **No arbitrary commands.** Every remote command is a fixed template, and every input is
@@ -337,6 +392,7 @@ src/vps_mcp/
 ├── backends/            # systemd + apt/dnf, docker/podman
 ├── core/                # guard (allowlist, confirm, audit), actions, deploy, changes, queries
 ├── store/               # SQLite: audit, revisions, deployed services, migration tables
-└── migration/           # catalogue, snapshot/diff/risk, copies, runner, rehearsal, checks
+├── migration/           # catalogue, snapshot/diff/risk, copies, runner, rehearsal, checks
+└── jobs/                # declared jobs: integrity, params, launcher, progress, guard, report
 specs/                   # speckit spec, plan, research, contracts, tasks per feature
 ```

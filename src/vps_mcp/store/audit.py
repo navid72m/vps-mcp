@@ -26,6 +26,9 @@ ACTIONS = (
     "cancel_rehearsal",
     "run_check",
     "drop_copy",
+    # declared jobs (003)
+    "run_job",
+    "cancel_job",
 )
 OUTCOMES = ("success", "failed", "refused", "timed_out", "unknown", "rolled_back", "preview")
 

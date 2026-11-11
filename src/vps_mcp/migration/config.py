@@ -156,6 +156,113 @@ class CheckDefinition(_Strict):
         return self
 
 
+JOB_NAME_RE = re.compile(r"^[a-z0-9-]{1,40}$")
+PARAM_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,31}$")
+# Environment names a declared job parameter may never set (research J7).
+PARAM_DENY = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "SHELL",
+        "IFS",
+        "ENV",
+        "BASH_ENV",
+        "PS4",
+        "SHELLOPTS",
+        "BASHOPTS",
+        "CDPATH",
+        "PYTHONPATH",
+        "PYTHONSTARTUP",
+        "PERL5LIB",
+        "NODE_OPTIONS",
+        "USER",
+        "LOGNAME",
+    }
+)
+PARAM_DENY_PREFIXES = ("LD_", "PG", "SYSTEMD_", "VPSMCP_", "BASH_FUNC_")
+DATE_TEMPLATE_RE = re.compile(r"\{date:([^}]*)\}")
+OUTCOME_GROUPS = {"step", "status"}
+
+
+def _no_dotdot(v: str) -> str:
+    if ".." in v.split("/"):
+        raise ValueError(f"path {v!r} must not contain '..'")
+    return v
+
+
+class ParamDecl(_Strict):
+    name: str
+    pattern: str
+    default: str | None = None
+    description: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def _check(self) -> ParamDecl:
+        if not PARAM_NAME_RE.fullmatch(self.name):
+            raise ValueError(f"parameter {self.name!r} must match ^[A-Z][A-Z0-9_]{{0,31}}$")
+        if self.name in PARAM_DENY or self.name.startswith(PARAM_DENY_PREFIXES):
+            raise ValueError(f"parameter name {self.name!r} is not allowed")
+        try:
+            rx = re.compile(self.pattern)
+        except re.error as exc:
+            raise ValueError(f"parameter {self.name}: bad pattern: {exc}") from None
+        if self.default is not None and not DATE_TEMPLATE_RE.search(self.default):
+            if not rx.fullmatch(self.default):
+                raise ValueError(f"parameter {self.name}: default does not match its pattern")
+        return self
+
+
+class JobDeclaration(_Strict):
+    name: str
+    script: AbsPath
+    run_as: UserName = "root"
+    progress_file: AbsPath
+    log_globs: list[AbsPath] = Field(default_factory=list, max_length=20)
+    report_file: AbsPath | None = None
+    may_modify: list[DbName] = Field(default_factory=list)
+    services: list[str] = Field(default_factory=list)
+    source: DbName | None = None
+    result: DbName | None = None
+    params: list[ParamDecl] = Field(default_factory=list, max_length=10)
+    min_free_gb: float = Field(default=5, ge=0)
+    max_runtime_h: float = Field(default=24, ge=0.1, le=168)
+    success_marker: str = Field(default="ALL DONE", min_length=1, max_length=80)
+    outcome_patterns: list[str] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def _check(self) -> JobDeclaration:
+        if not JOB_NAME_RE.fullmatch(self.name):
+            raise ValueError(f"job name {self.name!r} must match ^[a-z0-9-]{{1,40}}$")
+        for p in [
+            self.script,
+            self.progress_file,
+            *(self.log_globs),
+            *([self.report_file] if self.report_file else []),
+        ]:
+            _no_dotdot(p)
+        for g in self.log_globs:
+            head = g.rsplit("/", 1)[0]
+            if any(ch in head for ch in "*?["):
+                raise ValueError(f"job {self.name}: wildcards only in the file name ({g})")
+        if self.result is not None and self.result not in self.may_modify:
+            raise ValueError(f"job {self.name}: result must be listed in may_modify")
+        if not self.success_marker.isprintable():
+            raise ValueError(f"job {self.name}: success_marker must be printable")
+        names = [p.name for p in self.params]
+        if len(names) != len(set(names)):
+            raise ValueError(f"job {self.name}: parameter names must be unique")
+        for pat in self.outcome_patterns:
+            try:
+                rx = re.compile(pat)
+            except re.error as exc:
+                raise ValueError(f"job {self.name}: bad outcome pattern: {exc}") from None
+            if set(rx.groupindex) - OUTCOME_GROUPS:
+                raise ValueError(
+                    f"job {self.name}: outcome patterns may only use groups 'step' and 'status'"
+                )
+        return self
+
+
 def _inside(path: str, dirs: list[str]) -> bool:
     norm = posixpath.normpath(path)
     return any(norm == d or norm.startswith(d.rstrip("/") + "/") for d in dirs)
@@ -177,6 +284,7 @@ class MigrationSettings(_Strict):
     odoo: OdooProfile | None = None
     pipeline: list[PipelineDefinition] = Field(default_factory=list, max_length=10)
     check: list[CheckDefinition] = Field(default_factory=list, max_length=20)
+    job: list[JobDeclaration] = Field(default_factory=list, max_length=10)
 
     @model_validator(mode="after")
     def _cross(self) -> MigrationSettings:
@@ -200,6 +308,7 @@ class MigrationSettings(_Strict):
                     )
                 if s.run_as and s.run_as not in users:
                     raise ValueError(f"step '{s.name}': run_as '{s.run_as}' not allowed")
+        self._check_jobs()
         for c in self.check:
             if c.run_as not in users:
                 raise ValueError(f"check '{c.name}': run_as '{c.run_as}' not allowed")
@@ -216,6 +325,26 @@ class MigrationSettings(_Strict):
                 if ".." in arg.split("/"):
                     raise ValueError(f"check '{c.name}': '..' is not allowed in arguments")
         return self
+
+    def _check_jobs(self) -> None:
+        targets = set(self.target_names())
+        users = set(DEFAULT_RUN_AS) | set(self.allowed_run_as)
+        names = [j.name for j in self.job]
+        if len(names) != len(set(names)):
+            raise ValueError("job names must be unique")
+        for j in self.job:
+            for db in [
+                *j.may_modify,
+                *([j.source] if j.source else []),
+                *([j.result] if j.result else []),
+            ]:
+                if db not in targets:
+                    raise ValueError(f"job {j.name}: database '{db}' is not a [[migration.target]]")
+            if j.run_as not in users:
+                raise ValueError(f"job {j.name}: run_as '{j.run_as}' not allowed")
+
+    def get_job(self, name: str) -> JobDeclaration | None:
+        return next((j for j in self.job if j.name == name), None)
 
     def target_names(self) -> list[str]:
         return [t.name for t in self.target]

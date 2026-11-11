@@ -52,6 +52,7 @@ ignore = ["S101", "S603", "S108", "E501", "ASYNC109"]
 # Fixed SQL catalogue built from constant fragments; column names from an allowlist.
 "src/vps_mcp/migration/catalog.py" = ["S608"]
 "src/vps_mcp/migration/store.py" = ["S608"]
+"src/vps_mcp/jobs/store.py" = ["S608"]
 
 [tool.mypy]
 strict = true

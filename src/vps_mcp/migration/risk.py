@@ -316,7 +316,14 @@ def summary(report: dict[str, Any], top: int = 20) -> dict[str, Any]:
         "top_findings": report["findings"][:top],
         "skipped_checks": report["skipped_checks"],
     }
-    for k in ("step_results", "check_results", "rehearsal_id"):
+    for k in (
+        "step_results",
+        "check_results",
+        "rehearsal_id",
+        "job_state",
+        "run_id",
+        "report_excerpt",
+    ):
         if k in report:
             out[k] = report[k]
     return out

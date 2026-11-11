@@ -7,7 +7,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS managed_services (
@@ -103,6 +103,33 @@ CREATE TABLE IF NOT EXISTS migration_rehearsals (
 """
 
 
+# v3: declared jobs (specs/003-declared-jobs, data-model.md §2).
+_SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS job_runs (
+    run_id           TEXT PRIMARY KEY,
+    job              TEXT NOT NULL,
+    plan_hash        TEXT NOT NULL,
+    plan_json        TEXT NOT NULL,
+    status           TEXT NOT NULL,
+    unit             TEXT,
+    rundir           TEXT,
+    progress_offset  INTEGER,
+    baseline_json    TEXT,
+    last_guard_json  TEXT,
+    started_at       TEXT,
+    ended_at         TEXT,
+    exit_code        INTEGER,
+    systemd_result   TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    report_id        TEXT,
+    audit_id         INTEGER,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_job_runs_created ON job_runs (created_at DESC);
+"""
+
+
 def utcnow() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
@@ -127,6 +154,7 @@ def open_db(path: str | Path) -> sqlite3.Connection:
     if version < SCHEMA_VERSION:
         conn.executescript(_SCHEMA)  # idempotent (IF NOT EXISTS): also upgrades v1 databases
         conn.executescript(_SCHEMA_V2)
+        conn.executescript(_SCHEMA_V3)
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return conn
 

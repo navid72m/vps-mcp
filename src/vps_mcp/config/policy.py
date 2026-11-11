@@ -169,6 +169,18 @@ class AppConfig(_Strict):
                     f"service '{svc.name}' uses remote-access unit '{svc.unit_name}', "
                     "which can never be managed"
                 )
+        if self.migration is not None:
+            declared = {svc.name for svc in self.service}
+            for job in self.migration.job:
+                for name in job.services:
+                    if name not in declared:
+                        raise ValueError(
+                            f"job {job.name}: service '{name}' is not a declared [[service]]"
+                        )
+                    if unit_base(name) in protected_units:
+                        raise ValueError(
+                            f"job {job.name}: remote-access service '{name}' can never be declared"
+                        )
         return self
 
     @property

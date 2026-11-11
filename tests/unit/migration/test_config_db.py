@@ -145,6 +145,6 @@ def test_cli_migration_material(capsys):
 
 
 def test_catalog_sql_is_clean():
-    # '#' is not a SQL comment: a stray "# noqa" inside a query would break it at runtime.
+    # '#' is not a SQL comment: a stray lint suppression inside a query would break it.
     for name, sql in catalog.CATALOG.items():
         assert "#" not in sql and "noqa" not in sql, name

@@ -100,3 +100,27 @@ description = "Public API"
 # command = ["/opt/odoo/venv/bin/python3", "/opt/odoo/custom-addons/_migration/post_upgrade_checks.py", "--db", "{db}"]
 # run_as = "odoo"
 # access = "read_only"               # or "may_modify" (then only allowed on copies)
+#
+# --- Optional: declared jobs (4 extra tools). An operator-owned script the assistant may run
+# --- after showing a plan and getting confirmation. See specs/003-declared-jobs/.
+# --- VPS setup: vps-mcp bootstrap --print-sudoers --with-migration --with-jobs
+# [[migration.job]]
+# name = "full-rehearsal"
+# script = "/root/full_rehearsal.sh"       # root-owned, not writable by group/others
+# run_as = "root"
+# progress_file = "/root/rehearsal_logs/STEPS.txt"   # one event per line
+# log_globs = ["/root/rehearsal_logs/*.log"]
+# report_file = "/root/rehearsal_logs/compare.md"    # excerpt included in the final report
+# may_modify = ["shop_19_test"]           # databases the job may drop/rebuild (must be targets)
+# services = ["odoo-test"]                # [[service]] names the job may stop/start
+# source = "shop_17_dump"                 # compared against result when the job succeeds
+# result = "shop_19_test"
+# min_free_gb = 5
+# max_runtime_h = 24                      # stopped automatically after this
+# success_marker = "ALL DONE"
+#
+# [[migration.job.params]]                # passed as environment variables, never via a shell
+# name = "RUN_NAME"
+# pattern = "^[a-z0-9_]{1,40}$"
+# default = "rehearsal_{date:%Y%m%d_%H%M}"
+# description = "Run name (the script must read ${RUN_NAME})"
