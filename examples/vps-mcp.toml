@@ -50,3 +50,53 @@ config_files = [
 name = "api"
 kind = "container"
 description = "Public API"
+
+# ---------------------------------------------------------------------------------------
+# Optional: database migration analysis (13 extra tools). Uncomment to enable.
+# Full schema: specs/002-odoo-migration-analysis/contracts/migration-config.md
+# VPS setup:   vps-mcp bootstrap --print-sudoers --with-migration --config <this file>
+#              vps-mcp bootstrap --print-migration-sql   (read-only analysis role)
+# ---------------------------------------------------------------------------------------
+# [migration]
+# port = 5432                        # PostgreSQL cluster port
+# data_dir = "/var/lib/postgresql"   # where free disk is measured for copies
+# min_free_gb = 10                   # refuse/abort rehearsals below max(min_free_gb, min_free_pct%)
+# min_free_pct = 10
+# copy_growth_factor = 1.3           # estimated copy size = source size x this
+# copy_retention_h = 24              # disposable copies are dropped after this
+# approved_dirs = ["/opt/odoo/custom-addons/_migration"]   # step/check files must live here
+#
+# [migration.thresholds]
+# row_drop_warn_pct = 5              # row loss above this = warning
+# row_drop_block_pct = 20            # exact row loss above this = blocking
+# exact_count_top_n = 50             # always count the N largest tables exactly
+#
+# [[migration.target]]               # databases you may analyse (never production)
+# name = "shop_17_dump"
+# purpose = "dump"
+# [[migration.target]]
+# name = "shop_19_test"
+# purpose = "test"
+#
+# [migration.odoo]                   # needed for odoo_upgrade steps and the module-code check
+# python = "/opt/odoo/venv/bin/python3"
+# odoo_bin = "/opt/odoo/odoo19/odoo-bin"
+# config = "/etc/odoo.conf"
+# addons_paths = ["/opt/odoo/custom-addons", "/opt/odoo/odoo19/addons"]
+# run_as = "odoo"
+#
+# [[migration.pipeline]]             # steps run ONLY against a disposable copy
+# name = "upgrade-v19"
+# progress_file = "/root/upgrade_logs/STEPS.txt"      # for pipeline_last_run
+# log_globs = ["/var/log/odoo/upgrade_v19_*.log"]
+# steps = [
+#   { name = "cleanup",     kind = "sql",          file = "/opt/odoo/custom-addons/_migration/data_cleanup.sql" },
+#   { name = "upgrade-all", kind = "odoo_upgrade", modules = "all" },
+#   { name = "re-upgrade",  kind = "odoo_upgrade", modules = "stale", rounds = 3 },
+# ]
+#
+# [[migration.check]]
+# name = "post-upgrade-checks"
+# command = ["/opt/odoo/venv/bin/python3", "/opt/odoo/custom-addons/_migration/post_upgrade_checks.py", "--db", "{db}"]
+# run_as = "odoo"
+# access = "read_only"               # or "may_modify" (then only allowed on copies)
