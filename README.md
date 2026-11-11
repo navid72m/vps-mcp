@@ -88,6 +88,51 @@ deploy_service name="odoo" kind="container" confirm=true
 
 This requires `docker.io/library/` in `approved_sources.image_prefixes`.
 
+## Migration analysis (optional `[migration]` section)
+
+13 more tools analyse Odoo/PostgreSQL databases and rehearse upgrade pipelines. They're
+designed for an Odoo 17 → 19 style upgrade, where dumps and test copies live on the VPS and
+production lives elsewhere.
+
+| Purpose | Tools |
+|---|---|
+| Understand | `db_list`, `db_overview`, `db_modules`, `db_table` |
+| Compare + risk | `db_compare`, `get_report`, `list_reports` (findings are blocking/warning/info, with a verdict) |
+| Rehearse on a disposable copy | `rehearse` (plan → confirm with `plan_hash`), `rehearsal_status`, `cancel_rehearsal` |
+| Your own runs and checks | `pipeline_last_run`, `run_check` |
+| Cleanup | `drop_copies` (copies also expire after `copy_retention_h`) |
+
+Setup on the VPS, as root, after reviewing each step:
+
+```bash
+uv run vps-mcp bootstrap --print-sudoers --with-migration --config <policy.toml>   # → /etc/sudoers.d/vps-mcp
+uv run vps-mcp bootstrap --print-migration-sql | sudo -u postgres psql -p 5435      # read-only role
+sudo setfacl -m u:vpsmcp:rx /opt/odoo                                                # module code check
+```
+
+Declare targets, pipelines and checks as shown in
+[`contracts/migration-config.md`](specs/002-odoo-migration-analysis/contracts/migration-config.md).
+
+How each part is kept safe:
+- **Analysis** runs as a database role that can read everything and write nothing. Sessions are
+  also forced read-only.
+- **Queries** come from a fixed catalogue. No tool accepts SQL.
+- **Rehearsals** run your declared steps on a system-created copy, as a background job on the
+  VPS that keeps running if your client disconnects. Each copy carries an HMAC marker, and only
+  marked copies can ever be dropped.
+- **SQL step files** are scanned before running. Anything that could reach another database,
+  the cluster, the filesystem or a shell is refused (`\c`, `\!`, `dblink`, `DROP DATABASE`,
+  `GRANT`, `pg_read_file`, …).
+- **Script steps** are *detected, not confined*. Write counters on every other allowlisted
+  database are checked around each step, and any write aborts the rehearsal with a blocking
+  finding.
+- **Disk**: a rehearsal needs roughly 1.3× the source database size free, plus `min_free_gb` /
+  `min_free_pct` to spare. It is refused up front otherwise.
+
+> The extra sudo rights (`psql`/`createdb`/`dropdb` as postgres, `systemd-run` as root) are
+> database-superuser and root equivalent. The guarantees come from the server only issuing
+> generated, fingerprinted commands.
+
 ## Development
 
 ```bash

@@ -55,6 +55,7 @@ class Call:
     sudo: bool
     stdin: str | None
     env: dict[str, str] | None
+    user: str | None = None
 
 
 @dataclass
@@ -112,6 +113,7 @@ class FakeVps:
         self.unreachable = False
         self.sudo_denied: set[str] = set()
         self._tmp = 0
+        self.pg: Any = None  # tests.fakepg.FakePg, attached by migration tests
 
     # ------------------------------------------------------------------ helpers
 
@@ -156,12 +158,13 @@ class FakeVps:
         timeout: float = 30.0,
         stdin: str | None = None,
         env: dict[str, str] | None = None,
+        user: str | None = None,
     ) -> CommandResult:
         if self.unreachable:
             raise VpsMcpError(
                 ErrorCategory.CONNECTION_FAILURE, "host unreachable", subtype="unreachable"
             )
-        self.calls.append(Call(list(argv), sudo, stdin, env))
+        self.calls.append(Call(list(argv), sudo, stdin, env, user))
         if (
             self.drop_connection_on
             and tuple(argv[: len(self.drop_connection_on)]) == self.drop_connection_on
@@ -170,7 +173,14 @@ class FakeVps:
             raise ConnectionLost()
         if sudo and argv[0] in self.sudo_denied:
             raise VpsMcpError(ErrorCategory.PERMISSION_DENIED, f"may not run {argv[0]}")
-        handler = getattr(self, f"_h_{argv[0].replace('-', '_')}", None)
+        name = f"_h_{argv[0].replace('-', '_')}"
+        if self.pg is not None and argv[0].startswith("/"):
+            return self.pg.run_abs(list(argv), stdin, env, user)  # type: ignore[no-any-return]
+        if self.pg is not None and hasattr(self.pg, name):
+            res = getattr(self.pg, name)(list(argv), stdin, env, user)
+            if res is not None:
+                return res  # type: ignore[no-any-return]
+        handler = getattr(self, name, None)
         if handler is None:
             return err(f"{argv[0]}: command not found", 127)
         return handler(argv[1:], stdin)  # type: ignore[no-any-return]
@@ -327,6 +337,8 @@ class FakeVps:
         return ok(stdin or "")
 
     def _h_install(self, args: list[str], stdin: str | None) -> CommandResult:
+        if args and args[0] == "-d":
+            return ok()
         src, dst = args[-2], args[-1]
         if src not in self.files:
             return err(f"install: cannot stat '{src}'")

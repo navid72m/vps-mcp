@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -144,11 +145,69 @@ def _cmd_trust_host(args: argparse.Namespace) -> int:
     return 0
 
 
+MIGRATION_SUDOERS = """
+# --- database migration feature (vps-mcp bootstrap --with-migration) ---
+# psql/createdb/dropdb as postgres and systemd-run as root are superuser/root-equivalent;
+# vps-mcp only issues generated, fingerprinted commands (see README, "Migration analysis").
+Defaults:{user} env_keep += "PGOPTIONS"
+Cmnd_Alias VPSMCP_PG = /usr/bin/psql, /usr/bin/createdb, /usr/bin/dropdb, /usr/bin/pg_dump, \\
+                       /usr/bin/pg_restore
+Cmnd_Alias VPSMCP_REHEARSE = /usr/bin/systemd-run, /usr/bin/grep, /usr/bin/sha256sum, \\
+                             /usr/bin/tee, /usr/bin/tail, /usr/bin/ls
+{user} ALL=(postgres) NOPASSWD: VPSMCP_PG
+{user} ALL=(root) NOPASSWD: VPSMCP_REHEARSE
+"""
+
+MIGRATION_SQL = """\
+-- vps-mcp: read-only analysis role (peer auth maps the OS user {user} to this role).
+-- Run as: sudo -u postgres psql -p <port> -f vps-mcp-migration.sql
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{user}') THEN
+    CREATE ROLE {user} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+  END IF;
+END
+$$;
+GRANT pg_read_all_data, pg_read_all_stats TO {user};
+"""
+
+
+def migration_sudoers(user: str, check_runners: list[tuple[str, str]]) -> str:
+    out = MIGRATION_SUDOERS.format(user=user)
+    for run_as, interpreter in sorted(set(check_runners)):
+        out += f"{user} ALL=({run_as}) NOPASSWD: {interpreter}\n"
+    return out
+
+
 def _cmd_bootstrap(args: argparse.Namespace) -> int:
+    if args.print_migration_sql:
+        if not re.fullmatch(r"[a-z_][a-z0-9_]{0,31}", args.user):
+            print("invalid --user", file=sys.stderr)
+            return 2
+        sys.stdout.write(MIGRATION_SQL.format(user=args.user))
+        return 0
     if not args.print_sudoers:
-        print("nothing to do; use --print-sudoers", file=sys.stderr)
+        print("nothing to do; use --print-sudoers or --print-migration-sql", file=sys.stderr)
         return 2
     sys.stdout.write(render_sudoers(args.user, args.runtime, args.pm))
+    if args.with_migration:
+        runners: list[tuple[str, str]] = []
+        if args.config:
+            from vps_mcp.config.loader import ConfigError, load_config
+
+            try:
+                cfg = load_config(args.config)
+            except ConfigError as exc:
+                for e in exc.errors:
+                    print(f"config error: {e}", file=sys.stderr)
+                return 1
+            if cfg.migration:
+                runners = [
+                    (c.run_as, c.command[0])
+                    for c in cfg.migration.check
+                    if c.run_as not in ("vpsmcp",)
+                ]
+        sys.stdout.write(migration_sudoers(args.user, runners))
     return 0
 
 
@@ -178,6 +237,15 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--user", default="vpsmcp")
     b.add_argument("--runtime", default="docker", choices=["docker", "podman", "none"])
     b.add_argument("--pm", default="apt", choices=["apt", "dnf"])
+    b.add_argument(
+        "--with-migration", action="store_true", help="append the database-migration sudoers rules"
+    )
+    b.add_argument(
+        "--print-migration-sql",
+        action="store_true",
+        help="print SQL creating the read-only analysis role",
+    )
+    b.add_argument("--config", help="policy file (adds sudoers rules for declared checks)")
     b.set_defaults(func=_cmd_bootstrap)
     return p
 

@@ -29,6 +29,7 @@ class AppContext:
     locks: ServiceLocks
     backends: dict[ServiceKind, Any] = field(default_factory=dict)
     connection: VpsConnection | None = None
+    migration: Any = None  # vps_mcp.migration.runtime.MigrationRuntime when [migration] is set
 
     @property
     def policy(self):  # type: ignore[no-untyped-def]

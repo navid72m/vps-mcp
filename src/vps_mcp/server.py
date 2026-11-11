@@ -478,6 +478,10 @@ def create_server(app: AppContext) -> MCPServer:
             session_id=_session_id(ctx),
         )
 
+    if app.migration is not None:
+        from vps_mcp.migration import tools as migration_tools
+
+        migration_tools.register(mcp, app.migration, wrap, _session_id)
     return mcp
 
 
@@ -498,6 +502,17 @@ def build_context(
     purge_audit(db, config.policy.audit_retention_days)
     app = AppContext.build(config, executor, db, connection=connection)
     Reconciler(app).register()
+    if config.migration is not None:
+        from vps_mcp.migration.db import MigrationDb
+        from vps_mcp.migration.runtime import MigrationRuntime
+        from vps_mcp.migration.store import MigrationStore
+
+        app.migration = MigrationRuntime(
+            app=app,
+            settings=config.migration,
+            db=MigrationDb(executor, config.migration),
+            store=MigrationStore(db),
+        )
     return app
 
 

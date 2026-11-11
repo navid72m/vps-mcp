@@ -18,6 +18,7 @@ from vps_mcp.errors import ConnectionLost, ErrorCategory, VpsMcpError
 from vps_mcp.remote.connection import VpsConnection
 
 _ENV_KEY_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,63}$")
+_USER_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 _SUDO_DENIED = (
     "a password is required",
     "is not allowed to execute",
@@ -46,10 +47,13 @@ class RemoteExecutor(Protocol):
         timeout: float = 30.0,
         stdin: str | None = None,
         env: dict[str, str] | None = None,
+        user: str | None = None,
     ) -> CommandResult: ...
 
 
-def render_command(argv: list[str], *, sudo: bool, env: dict[str, str] | None = None) -> str:
+def render_command(
+    argv: list[str], *, sudo: bool, env: dict[str, str] | None = None, user: str | None = None
+) -> str:
     if not argv:
         raise ValueError("empty argv")
     parts: list[str] = []
@@ -57,8 +61,10 @@ def render_command(argv: list[str], *, sudo: bool, env: dict[str, str] | None = 
         if not _ENV_KEY_RE.fullmatch(k):
             raise ValueError(f"invalid env key {k!r}")
         parts.append(f"{k}={shlex.quote(v)}")
+    if user is not None and (not sudo or not _USER_RE.fullmatch(user)):
+        raise ValueError(f"invalid sudo target user {user!r}")
     if sudo:
-        parts += ["sudo", "-n", "--"]
+        parts += ["sudo", "-n", "-u", user, "--"] if user else ["sudo", "-n", "--"]
     parts += [shlex.quote(a) for a in argv]
     return " ".join(parts)
 
@@ -85,8 +91,9 @@ class SshExecutor:
         timeout: float = 30.0,
         stdin: str | None = None,
         env: dict[str, str] | None = None,
+        user: str | None = None,
     ) -> CommandResult:
-        command = render_command(argv, sudo=sudo, env=env)
+        command = render_command(argv, sudo=sudo, env=env, user=user)
         # Failures here happen before anything ran on the VPS: plain connection_failure.
         conn = await self.connection.get()
         try:

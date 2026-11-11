@@ -41,6 +41,30 @@ def mask_text_lines(text: str, globs: list[str]) -> str:
     return "".join(out)
 
 
+_KEY_SEP_RE = re.compile(r"\b(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)(?P<sep>\s*[=:]\s*)")
+_VALUE_RE = re.compile(r"\"[^\"]*\"|'[^']*'|[^\s,;)]+")
+
+
+def mask_inline(text: str, globs: list[str]) -> str:
+    """Mask ``key=value`` / ``key: value`` pairs anywhere in a line (e.g. inside log messages).
+
+    Keys are found without consuming values, so ``query: password=x`` still masks ``x``.
+    """
+    out: list[str] = []
+    pos = 0
+    for m in _KEY_SEP_RE.finditer(text):
+        if m.start() < pos or not is_secret_key(m["key"], globs):
+            continue
+        v = _VALUE_RE.match(text, m.end())
+        if not v:
+            continue
+        out.append(text[pos : m.end()])
+        out.append(MASK)
+        pos = v.end()
+    out.append(text[pos:])
+    return "".join(out)
+
+
 def scrub(text: str, secrets: list[str]) -> str:
     for s in secrets:
         if s and len(s) >= MIN_SECRET_LEN:

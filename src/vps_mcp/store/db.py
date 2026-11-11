@@ -7,7 +7,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS managed_services (
@@ -52,6 +52,57 @@ CREATE INDEX IF NOT EXISTS idx_revisions_service ON service_revisions (service_n
 """
 
 
+# v2: database migration feature (specs/002-odoo-migration-analysis, data-model.md §2-§5).
+_SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS migration_snapshots (
+    id        TEXT PRIMARY KEY,
+    database  TEXT NOT NULL,
+    is_copy   INTEGER NOT NULL DEFAULT 0,
+    taken_at  TEXT NOT NULL,
+    json      TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS migration_reports (
+    id          TEXT PRIMARY KEY,
+    created_at  TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    verdict     TEXT NOT NULL,
+    inputs_json TEXT NOT NULL,
+    json        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mreports_created ON migration_reports (created_at DESC);
+CREATE TABLE IF NOT EXISTS migration_copies (
+    copy_id       TEXT PRIMARY KEY,
+    name          TEXT NOT NULL UNIQUE,
+    source        TEXT NOT NULL,
+    method        TEXT NOT NULL,
+    marker        TEXT NOT NULL,
+    state         TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    expires_at    TEXT NOT NULL,
+    dropped_at    TEXT,
+    size_bytes    INTEGER,
+    rehearsal_id  TEXT,
+    report_id     TEXT
+);
+CREATE TABLE IF NOT EXISTS migration_rehearsals (
+    rehearsal_id       TEXT PRIMARY KEY,
+    pipeline           TEXT NOT NULL,
+    source             TEXT NOT NULL,
+    copy_id            TEXT,
+    plan_hash          TEXT NOT NULL,
+    plan_json          TEXT NOT NULL,
+    status             TEXT NOT NULL,
+    unit               TEXT,
+    source_snapshot_id TEXT,
+    step_results_json  TEXT,
+    report_id          TEXT,
+    audit_id           INTEGER,
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL
+);
+"""
+
+
 def utcnow() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
@@ -74,7 +125,8 @@ def open_db(path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys=ON")
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version < SCHEMA_VERSION:
-        conn.executescript(_SCHEMA)
+        conn.executescript(_SCHEMA)  # idempotent (IF NOT EXISTS): also upgrades v1 databases
+        conn.executescript(_SCHEMA_V2)
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return conn
 
@@ -89,6 +141,8 @@ def purge_audit(conn: sqlite3.Connection, retention_days: int) -> int:
             (cutoff,),
         )
         cur = conn.execute("DELETE FROM audit_records WHERE ts < ?", (cutoff,))
+        conn.execute("DELETE FROM migration_reports WHERE created_at < ?", (cutoff,))
+        conn.execute("DELETE FROM migration_snapshots WHERE taken_at < ?", (cutoff,))
         conn.execute("COMMIT")
     except Exception:
         conn.execute("ROLLBACK")

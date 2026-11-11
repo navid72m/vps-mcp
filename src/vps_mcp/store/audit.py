@@ -20,6 +20,12 @@ ACTIONS = (
     "configure",
     "rollback",
     "remove",
+    # database migration feature (002)
+    "copy",
+    "rehearse",
+    "cancel_rehearsal",
+    "run_check",
+    "drop_copy",
 )
 OUTCOMES = ("success", "failed", "refused", "timed_out", "unknown", "rolled_back", "preview")
 

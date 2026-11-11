@@ -70,5 +70,28 @@ name = "api"
 kind = "container"
 EOF
 
+# --- migration feature (002): PostgreSQL with two small databases differing on purpose ---
+multipass exec "$VM" -- sudo bash -euo pipefail -c '
+  apt-get install -y -q postgresql acl >/dev/null
+  sudo -u postgres dropdb --if-exists it_after
+  sudo -u postgres dropdb --if-exists it_before
+  sudo -u postgres createdb it_before
+  sudo -u postgres psql -q -d it_before -c "CREATE TABLE res_partner (id serial primary key, name varchar(64), vat varchar(32)); INSERT INTO res_partner(name, vat) SELECT g::text, g::text FROM generate_series(1,1000) g; ANALYZE;"
+  sudo -u postgres createdb -T it_before it_after
+  sudo -u postgres psql -q -d it_after -c "ALTER TABLE res_partner DROP COLUMN vat; DELETE FROM res_partner WHERE id > 600;"
+'
+(cd "$ROOT" && uv run vps-mcp bootstrap --print-migration-sql) \
+  | multipass exec "$VM" -- sudo -u postgres psql -q
+PGPORT=$(multipass exec "$VM" -- pg_lsclusters -h | awk 'NR==1{print $3}')
+{
+  echo ""
+  echo "[migration]"
+  echo "port = $PGPORT"
+  echo "[[migration.target]]"
+  echo 'name = "it_before"'
+  echo "[[migration.target]]"
+  echo 'name = "it_after"'
+} >> "$CONFIG"
+
 (cd "$ROOT" && uv run vps-mcp check-config --config "$CONFIG")
 echo "Ready: uv run pytest -m integration --vps-config $CONFIG"

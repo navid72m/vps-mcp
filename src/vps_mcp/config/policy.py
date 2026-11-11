@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
+from vps_mcp.migration.config import MigrationSettings
 from vps_mcp.models.inputs import AbsPath, PackageName, ServiceKind, ServiceName
 
 VALIDATOR_KEYS = ("nginx", "sshd", "caddy", "haproxy")
@@ -153,6 +154,7 @@ class AppConfig(_Strict):
     vps: TargetVPS
     policy: Policy = Field(default_factory=Policy)
     service: list[ServiceDeclaration] = Field(default_factory=list)
+    migration: MigrationSettings | None = None
 
     @model_validator(mode="after")
     def _cross_checks(self) -> AppConfig:
