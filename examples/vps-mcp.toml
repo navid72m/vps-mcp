@@ -124,3 +124,14 @@ description = "Public API"
 # pattern = "^[a-z0-9_]{1,40}$"
 # default = "rehearsal_{date:%Y%m%d_%H%M}"
 # description = "Run name (the script must read ${RUN_NAME})"
+
+# ------------------------------------------------------------------ agent memory (optional)
+# Persistent memory shared by every MCP client session (specs/004-agent-memory). On by default;
+# the whole section is optional. Notes are Markdown files on this machine, never on the VPS.
+# [memory]
+# enabled = true
+# path = "~/.config/vps-mcp/myvps.memory"   # default: next to this file, <file stem>.memory
+# writable = true              # false: assistants can read memory but not write/archive notes
+# briefing_chars = 6000        # size of the briefing sent when a session connects (~1,500 words)
+# max_note_bytes = 8192
+# max_notes = 500

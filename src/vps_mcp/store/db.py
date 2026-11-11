@@ -7,7 +7,7 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS managed_services (
@@ -130,6 +130,18 @@ CREATE INDEX IF NOT EXISTS idx_job_runs_created ON job_runs (created_at DESC);
 """
 
 
+# v4: agent memory (specs/004-agent-memory, data-model.md §4).
+_SCHEMA_V4 = """
+CREATE TABLE IF NOT EXISTS service_observations (
+    name        TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    PRIMARY KEY (name, kind)
+);
+"""
+
+
 def utcnow() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds")
 
@@ -155,6 +167,7 @@ def open_db(path: str | Path) -> sqlite3.Connection:
         conn.executescript(_SCHEMA)  # idempotent (IF NOT EXISTS): also upgrades v1 databases
         conn.executescript(_SCHEMA_V2)
         conn.executescript(_SCHEMA_V3)
+        conn.executescript(_SCHEMA_V4)
         conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
     return conn
 

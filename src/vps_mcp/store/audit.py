@@ -29,6 +29,9 @@ ACTIONS = (
     # declared jobs (003)
     "run_job",
     "cancel_job",
+    # agent memory (004)
+    "memory_write",
+    "memory_archive",
 )
 OUTCOMES = ("success", "failed", "refused", "timed_out", "unknown", "rolled_back", "preview")
 

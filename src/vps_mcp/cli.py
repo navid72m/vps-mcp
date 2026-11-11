@@ -93,7 +93,45 @@ def _cmd_check_config(args: argparse.Namespace) -> int:
         f"OK: vps '{cfg.vps.name}' ({cfg.vps.host}), {len(cfg.service)} declared service(s), "
         f"read_only={cfg.policy.read_only}"
     )
+    if cfg.memory.enabled and cfg.memory.path:
+        for line in memory_report(Path(cfg.memory.path)):
+            print(line)
+    else:
+        print("memory: disabled")
     return 0
+
+
+PUBLIC_GIT_HOSTS = ("github.com", "gitlab.com", "bitbucket.org")
+
+
+def memory_report(path: Path) -> list[str]:
+    """``check-config`` lines for the memory folder: location, note count, privacy warnings."""
+    import subprocess
+
+    home = str(Path.home())
+    shown = "~" + str(path)[len(home) :] if str(path).startswith(home + "/") else str(path)
+    notes = path / "notes"
+    count = sum(1 for _ in notes.glob("*.md")) if notes.is_dir() else 0
+    out = [f"memory: {shown} ({count} notes)" if path.exists() else f"memory: {shown} (new)"]
+    if path.exists() and path.stat().st_mode & 0o077:
+        out.append(f"WARNING memory folder {shown} is readable by other users; chmod 700 it")
+    probe = path if path.exists() else path.parent
+    try:
+        remotes = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["git", "-C", str(probe), "remote", "-v"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        remotes = ""
+    if any(h in remotes for h in PUBLIC_GIT_HOSTS):
+        out.append(
+            f"WARNING memory folder {shown} is inside a git repository with a hosted remote; "
+            "make sure that repository is private"
+        )
+    return out
 
 
 def _host_pattern(host: str, port: int) -> str:

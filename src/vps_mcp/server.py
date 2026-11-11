@@ -1,4 +1,4 @@
-"""MCP server: a thin adapter from 16 tools to the core use cases (contracts/mcp-tools.md).
+"""MCP server: a thin adapter from the service tools to the core use cases (contracts/mcp-tools.md).
 
 Tool inputs are declared with descriptive JSON schemas (FR-001) but validated inside the
 use cases, so malformed requests still get a categorized error and an audit record.
@@ -125,6 +125,8 @@ def _tool_wrapper(
                     ErrorCategory.FAILED, f"internal error: {exc.__class__.__name__}"
                 )
                 return _result(internal.to_envelope(), is_error=True, secrets=app.secret_strings)
+            if app.memory is not None:
+                app.memory.after_tool(fn.__name__, payload)  # best effort, never raises
             return _result({"ok": True, **payload}, is_error=False, secrets=app.secret_strings)
 
         return wrapper
@@ -148,7 +150,10 @@ def _rw(destructive: bool, idempotent: bool = False) -> ToolAnnotations:
 
 
 def create_server(app: AppContext) -> MCPServer:
-    mcp = MCPServer(name="vps-mcp", instructions=INSTRUCTIONS, version="0.1.0")
+    instructions = INSTRUCTIONS
+    if app.memory is not None:
+        instructions += "\n\n" + app.memory.connect_instructions()
+    mcp = MCPServer(name="vps-mcp", instructions=instructions, version="0.1.0")
     wrap = _tool_wrapper(app)
 
     # ------------------------------------------------------------- read-only
@@ -486,6 +491,10 @@ def create_server(app: AppContext) -> MCPServer:
             from vps_mcp.jobs import tools as job_tools
 
             job_tools.register(mcp, app.migration, wrap, _session_id)
+    if app.memory is not None:
+        from vps_mcp.memory import tools as memory_tools
+
+        memory_tools.register(mcp, app.memory, wrap, _session_id)
     return mcp
 
 
@@ -517,6 +526,10 @@ def build_context(
             db=MigrationDb(executor, config.migration),
             store=MigrationStore(db),
         )
+    if config.memory.enabled and config.memory.path:
+        from vps_mcp.memory.service import MemoryService
+
+        app.memory = MemoryService(config, db, app.audit, config.secret_strings)
     return app
 
 

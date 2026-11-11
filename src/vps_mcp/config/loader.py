@@ -44,6 +44,22 @@ def known_hosts_has(path: Path, host: str, port: int) -> bool:
     return False
 
 
+def resolve_memory_path(config_path: Path, configured: str | None) -> Path:
+    """Default: next to the policy file, ``<stem>.memory`` (research M5)."""
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.is_absolute():
+            path = config_path.expanduser().absolute().parent / path
+    else:
+        cp = config_path.expanduser().absolute()
+        path = cp.parent / f"{cp.stem}.memory"
+    path = path.resolve()
+    source_root = Path(__file__).resolve().parent.parent.parent
+    if path == source_root or source_root in path.parents:
+        raise ValueError(f"must not be inside the vps-mcp source tree ({source_root})")
+    return path
+
+
 def load_config(path: str | Path) -> AppConfig:
     p = Path(path).expanduser()
     try:
@@ -57,6 +73,11 @@ def load_config(path: str | Path) -> AppConfig:
         cfg = AppConfig.model_validate(raw)
     except ValidationError as exc:
         raise ConfigError(_format(exc)) from None
+
+    try:
+        cfg.memory.path = str(resolve_memory_path(p, cfg.memory.path))
+    except ValueError as exc:
+        raise ConfigError([f"memory.path: {exc}"]) from None
 
     vps = cfg.vps
     vps.known_hosts_path = str(Path(vps.known_hosts_path).expanduser())

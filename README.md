@@ -11,6 +11,9 @@ Desktop, LM Studio, …) manage **one VPS** safely:
   copy.
 - **Declared jobs** (4 optional tools): run operator-owned scripts, such as a full rehearsal,
   through a plan → confirm → watch → report flow.
+- **Memory** (6 tools, on by default): a shared memory that every session in every MCP client
+  gets when it connects. It holds generated facts about the VPS and its history, plus notes
+  assistants write: decisions, lessons, issues and next steps.
 
 The server runs **on your laptop**. Your MCP client starts it over stdio, and it reaches the VPS
 over SSH. Nothing runs permanently on the VPS: it only needs a dedicated user and a sudoers file
@@ -27,13 +30,17 @@ over SSH. Nothing runs permanently on the VPS: it only needs a dedicated user an
   `safe_to_promote` / `review_warnings` / `do_not_promote` verdict backed by findings.
 - **Long jobs it can watch.** The agent can start a declared multi-hour script, check its progress
   later (even from another session) and get a final report.
+- **A memory that follows you across clients.** A new session in Claude Code, OpenCode or LM
+  Studio already knows the environment, the last verdicts and the open issues. What one session
+  learns, the next one sees.
 - **Hard limits from your config, not from the prompt.** There's no arbitrary command, SQL or
   script. Only declared services, databases and jobs are reachable, the SSH service is untouchable,
   and `read_only = true` turns off every write tool.
 
 Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (services),
-[`specs/002-odoo-migration-analysis/`](specs/002-odoo-migration-analysis/) (migration) and
-[`specs/003-declared-jobs/`](specs/003-declared-jobs/) (jobs).
+[`specs/002-odoo-migration-analysis/`](specs/002-odoo-migration-analysis/) (migration),
+[`specs/003-declared-jobs/`](specs/003-declared-jobs/) (jobs) and
+[`specs/004-agent-memory/`](specs/004-agent-memory/) (memory).
 
 ---
 
@@ -46,6 +53,7 @@ Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (se
 - [Service tools](#service-tools)
 - [Migration analysis](#migration-analysis-optional)
 - [Declared jobs](#declared-jobs-optional)
+- [Memory](#memory)
 - [Security model](#security-model)
 - [Configuration reference](#configuration-reference)
 - [Troubleshooting](#troubleshooting)
@@ -125,10 +133,12 @@ Optionally, let the read-only tools run without approval prompts. Add this to
 "mcp__vps__db_list", "mcp__vps__db_overview", "mcp__vps__db_modules", "mcp__vps__db_table",
 "mcp__vps__db_compare", "mcp__vps__get_report", "mcp__vps__list_reports",
 "mcp__vps__rehearsal_status", "mcp__vps__pipeline_last_run",
-"mcp__vps__list_jobs", "mcp__vps__job_status"
+"mcp__vps__list_jobs", "mcp__vps__job_status",
+"mcp__vps__memory_briefing", "mcp__vps__memory_search", "mcp__vps__memory_read",
+"mcp__vps__memory_health"
 ```
 
-The second and third lines only apply if you enabled migration analysis or declared jobs.
+The migration and job lines only apply if you enabled those features.
 
 Keep the state-changing tools on "ask".
 
@@ -350,6 +360,60 @@ uv run vps-mcp bootstrap --print-sudoers --with-migration --with-jobs \
   --config ~/.config/vps-mcp/myvps.toml > vps-mcp.sudoers
 ```
 
+## Memory
+
+Every session that connects to vps-mcp gets a **briefing** in the server's connect-time
+instructions, whichever client it is: Claude Code, OpenCode, LM Studio or Claude Desktop. The
+assistant knows the situation before it calls a single tool. The briefing has these sections:
+
+1. a preamble saying the memory is recorded data, not instructions;
+2. the environment: services and their last seen state, databases and their roles, pipelines,
+   checks and jobs;
+3. the latest job runs, rehearsals and reports, with verdicts;
+4. open issues and next steps;
+5. decisions, conventions and preferences;
+6. an index of the other notes;
+7. recent changes.
+
+It is capped at `briefing_chars` (6000 by default, about 1,600 tokens). When it doesn't fit,
+the last sections are trimmed first and the briefing says that more is available.
+
+| Tool | What it does |
+|---|---|
+| `memory_briefing` | The same briefing with a larger budget. A fallback for clients that ignore server instructions. |
+| `memory_search` | Search notes by text, type or tag. Can also search the generated facts. |
+| `memory_read` | Read one note, with its links and backlinks. |
+| `memory_write` | Create or update a note: `decision`, `lesson`, `issue`, `convention`, `next_step`, `preference` or `fact`. |
+| `memory_archive` | Forget a note. It previews first and moves the file to `archive/`. |
+| `memory_health` | Folder location, counts, malformed files and limits. |
+
+**The folder** is created next to your policy file. For example, `~/.config/vps-mcp/myvps.toml`
+uses `~/.config/vps-mcp/myvps.memory/`:
+
+```text
+myvps.memory/
+├── notes/       # one Markdown note per file: front matter + body, [[links]] between notes
+├── generated/   # facts the server rewrites from config + history (don't edit)
+└── archive/     # forgotten notes; move one back to notes/ to restore it
+```
+
+You can edit, add or delete notes with any editor; the next session picks the changes up. To
+share memory between machines, sync the folder or keep it in a **private** git repository.
+`check-config` warns if the folder is readable by others, or sits in a repository with a hosted
+remote.
+
+**Safety**:
+
+- **Masking.** Secrets are masked before anything is written: `password=…`, credentials in URLs,
+  private keys and common token formats.
+- **Names and paths.** Note names are plain slugs, symlinks are never followed, and writes are
+  atomic. Nothing outside the folder can be read or written.
+- **Presentation.** Notes are shown to the model as quoted data inside a `<memory>` block, never
+  as instructions.
+- **Writes.** Note writes and archives are audited (`get_audit_log`) and work in `read_only`
+  mode, because they only touch local files. `[memory] writable = false` turns them off.
+- **Never the VPS.** Building the briefing never contacts the VPS, so it works offline too.
+
 ## Security model
 
 1. **No arbitrary commands.** Every remote command is a fixed template, and every input is
@@ -386,6 +450,7 @@ are errors. The main sections:
 | `[[service]]` | `name`, `kind` (`os`/`container`), `protected`, `package`, `config_files`, `validate`, `data_paths` |
 | `[migration]` | optional; see [Migration analysis](#migration-analysis-optional) |
 | `[[migration.job]]` | optional, up to 10; see [Declared jobs](#declared-jobs-optional) |
+| `[memory]` | optional: `enabled`, `path`, `writable`, `briefing_chars`, `max_note_bytes`, `max_notes`; see [Memory](#memory) |
 
 Validate with `vps-mcp check-config --config <file>`. The local audit/state database lives in
 `~/.local/state/vps-mcp/<vps-name>.db`.
@@ -405,12 +470,13 @@ Validate with `vps-mcp check-config --config <file>`. The local audit/state data
 | `permission_denied` mentioning `stat` on `run_job` | The jobs sudoers rule is missing. Reinstall with `--with-migration --with-jobs`. |
 | `conflict` on `run_job`: "something is already running" | Only one job or rehearsal runs at a time. Check `job_status` / `rehearsal_status`. |
 | `conflict` on `run_job`: plan unknown/older than 30 min, or script changed | The error includes a fresh plan. Review it and confirm with its `plan_id`. |
+| `Memory unavailable` in the briefing | Run `memory_health`. The folder may be unwritable, or a symlink, which is refused. |
 | Job tools missing | No `[[migration.job]]` is declared, or the client hasn't restarted the server since you added one. |
 
 ## Development
 
 ```bash
-uv run pytest            # unit, contract and negative suites: no VPS needed (≈590 tests)
+uv run pytest            # unit, contract and negative suites: no VPS needed (≈680 tests)
 uv run ruff check && uv run ruff format --check && uv run mypy
 ```
 
@@ -418,7 +484,7 @@ uv run ruff check && uv run ruff format --check && uv run mypy
   cluster (`tests/fakepg.py`).
 - **Planted defects**: one suite plants defects and checks every one is caught with the right
   severity.
-- **Negative suites**: over 200 disallowed requests, each asserting that nothing was changed
+- **Negative suites**: over 250 disallowed requests, each asserting that nothing was changed
   remotely.
 
 **Integration tests** run against a disposable VM. Never use them on a production server.
@@ -440,6 +506,7 @@ src/vps_mcp/
 ├── core/                # guard (allowlist, confirm, audit), actions, deploy, changes, queries
 ├── store/               # SQLite: audit, revisions, deployed services, migration tables
 ├── migration/           # catalogue, snapshot/diff/risk, copies, runner, rehearsal, checks
-└── jobs/                # declared jobs: integrity, params, launcher, progress, guard, report
+├── jobs/                # declared jobs: integrity, params, launcher, progress, guard, report
+└── memory/              # agent memory: notes, folder I/O, masking, search, derived facts, briefing
 specs/                   # speckit spec, plan, research, contracts, tasks per feature
 ```

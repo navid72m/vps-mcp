@@ -150,11 +150,23 @@ def unit_base(unit: str) -> str:
     return unit.removesuffix(".service")
 
 
+class MemorySettings(_Strict):
+    """Agent memory (specs/004-agent-memory, contracts/memory-config.md)."""
+
+    enabled: bool = True
+    path: str | None = None  # resolved by the loader; default <config dir>/<config stem>.memory
+    writable: bool = True
+    briefing_chars: int = Field(default=6000, ge=1000, le=20000)
+    max_note_bytes: int = Field(default=8192, ge=512, le=65536)
+    max_notes: int = Field(default=500, ge=10, le=5000)
+
+
 class AppConfig(_Strict):
     vps: TargetVPS
     policy: Policy = Field(default_factory=Policy)
     service: list[ServiceDeclaration] = Field(default_factory=list)
     migration: MigrationSettings | None = None
+    memory: MemorySettings = Field(default_factory=MemorySettings)
 
     @model_validator(mode="after")
     def _cross_checks(self) -> AppConfig:
