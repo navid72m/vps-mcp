@@ -66,6 +66,55 @@ command = ["/absolute/path/to/uv", "run", "--directory", "/absolute/path/to/vps-
 allow = ["*"]                         # tool-name globs the model may see
 # read-only tools run without asking; everything else asks on your phone. Override per tool:
 policy = { remove_service = "never", deploy_service = "never", configure_service = "ask" }
+# Lazy tool loading: these are sent on every call; the rest are grouped into toolsets that are
+# loaded when a message needs them (see [tools] below and /tools on the phone).
+core = ["list_services", "get_service_status", "get_resource_usage"]
+
+[server.toolsets.gitlab]
+tools = ["gitlab_*"]
+description = "GitLab repos, files, commits, merge requests, issues, pipelines and CI jobs"
+keywords = ["gitlab", "repo", "repository", "merge request", "mr", "pipeline", "ci", "branch",
+            "commit", "tag", "issue", "job log"]
+
+[server.toolsets.db]
+tools = ["db_*"]
+description = "databases: list, overview, installed modules, tables, compare two databases"
+keywords = ["database", "db", "postgres", "table", "module", "installed", "schema", "rows"]
+
+[server.toolsets.deploy]
+tools = ["deploy_*", "rollback_*", "update_service", "configure_service"]
+description = "deploy services or GitLab refs, deploy targets, roll back, update and configure"
+keywords = ["deploy", "deployment", "release", "rollback", "roll back", "update", "upgrade",
+            "configure", "version"]
+
+[server.toolsets.migration]
+tools = ["rehearse", "rehearsal_status", "cancel_rehearsal", "run_check", "drop_copies",
+         "get_report", "list_reports", "pipeline_last_run"]
+description = "migration rehearsals, checks, reports, last pipeline run, database copies"
+keywords = ["migration", "migrate", "rehearsal", "rehearse", "check", "report", "copy",
+            "dry run", "upgrade test"]
+
+[server.toolsets.jobs]
+tools = ["list_jobs", "run_job", "job_status", "cancel_job"]
+description = "run, watch and cancel declared jobs"
+keywords = ["job", "run", "task", "backup", "cron"]
+
+[server.toolsets.services]
+tools = ["start_service", "stop_service", "restart_service", "set_boot_start",
+         "get_service_logs", "get_service_config", "get_audit_log", "list_revisions"]
+description = "start, stop, restart services, boot start, logs, config, audit log, revisions"
+keywords = ["restart", "start", "stop", "logs", "log", "error", "crash", "config", "boot",
+            "revision", "audit"]
+
+[server.toolsets.memory-admin]
+tools = ["memory_*"]
+description = "the server's own shared-memory tools (search, read)"
+keywords = ["memory", "remember", "note"]
+
+[tools]
+lazy = true                           # false: every tool on every call (bigger, slower prompts)
+max_auto = 2                          # toolsets loaded automatically per message
+idle_turns = 6                        # unload a toolset after this many messages without use
 
 [[schedule]]
 name = "morning-briefing"

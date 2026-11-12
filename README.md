@@ -660,6 +660,7 @@ dropped before any model or tool call, and audited.
 | `/stop` · `/resume` | Kill switch: cancels running work and voids approvals; nothing runs until `/resume` |
 | `/forget` | Delete stored conversation history (memory is not affected) |
 | `/model [name]` | List the models (with switch buttons) or switch to one |
+| `/tools` | Core tools, toolsets, which are loaded now, and the size of the tool list |
 
 **Approvals.** Each tool has a policy: `auto`, `ask` or `never`. By default read-only tools are
 `auto` and everything else is `ask`; tools that aren't allowlisted are never offered to the
@@ -674,6 +675,23 @@ preview (vps-mcp's `confirm=false` plan), with **Approve / Reject** buttons.
 memories. It **cannot** write them. At the end of a conversation (`/done`, or 30 minutes idle) it
 proposes up to 5 memories, and only the ones you tap **Save** on are stored, through
 agent-memory's normal write policy (secrets refused, duplicates merged, conflicts flagged).
+
+**Tools and context.** Not every tool is sent to the model on every message: tool definitions
+alone were about 10,000 tokens per call. A few **core** tools are always there (memory search,
+schedules, service status). The rest are grouped into **toolsets** (gitlab, db, deploy,
+migration, jobs, services, files, …), and the model sees a one-line catalog of them. A toolset is
+loaded when:
+
+- your message matches its keywords ("why did the pipeline fail?" loads `gitlab` before the
+  model even starts);
+- the model asks for it with `tools__load`;
+- the model calls one of its tools directly.
+
+It stays loaded while the conversation uses it, is unloaded after 6 messages without use, and
+`/new` starts again from the core. Loading never changes a tool's policy: `ask` tools still ask
+and `never` tools are never shown. Groups, core tools and keywords are set per server in the
+config (`core = [...]`, `[server.toolsets.<name>]`, see the example); `[tools] lazy = false` sends
+everything as before. `assistant check` prints the size with and without lazy loading.
 
 **Limits and audit.**
 

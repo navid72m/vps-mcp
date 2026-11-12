@@ -143,18 +143,40 @@ class MemorySection(_Strict):
     allow_scopes: list[str] = Field(default_factory=list)
 
 
+TOOLSET_RE = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
+
+
+class ToolsetSection(_Strict):
+    tools: list[str] = Field(min_length=1)  # globs on the server's own tool names
+    description: str = Field(default="", max_length=120)
+    keywords: list[str] = Field(default_factory=list)
+
+
+class ToolsSection(_Strict):
+    lazy: bool = True  # false: every allowed tool on every call (pre-008 behaviour)
+    core: list[str] = Field(default_factory=list)  # extra core tools, model-facing name globs
+    max_auto: int = Field(default=2, ge=0, le=5)  # toolsets prefetched per turn
+    idle_turns: int = Field(default=6, ge=1)  # unload after this many turns without use
+    threshold: float = Field(default=2.0, gt=0)  # prefetch score needed
+
+
 class ServerSection(_Strict):
     name: str
     command: list[str] = Field(default_factory=list)
     allow: list[str] = Field(default_factory=lambda: ["*"])
     policy: dict[str, Policy] = Field(default_factory=dict)
+    core: list[str] = Field(default_factory=list)  # always-loaded tools (globs)
+    toolsets: dict[str, ToolsetSection] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _rules(self) -> ServerSection:
         if not SERVER_RE.fullmatch(self.name):
             raise ValueError(f"server name '{self.name}' must match {SERVER_RE.pattern}")
-        if self.name in ("memory", "assistant"):
+        if self.name in ("memory", "assistant", "tools", "files", "schedule"):
             raise ValueError(f"server name '{self.name}' is reserved for built-in tools")
+        for ts in self.toolsets:
+            if not TOOLSET_RE.fullmatch(ts):
+                raise ValueError(f"toolset name '{ts}' must match {TOOLSET_RE.pattern}")
         return self
 
 
@@ -178,6 +200,7 @@ class Config(_Strict):
     model: ModelSection = Field(default_factory=ModelSection)  # the default model
     models: dict[str, ModelSection] = Field(default_factory=dict, max_length=10)  # switchable
     limits: Limits = Field(default_factory=Limits)
+    tools: ToolsSection = Field(default_factory=ToolsSection)
     memory: MemorySection = Field(default_factory=MemorySection)
     server: list[ServerSection] = Field(default_factory=list, max_length=20)
     schedule: list[ScheduleSection] = Field(default_factory=list, max_length=50)
@@ -187,6 +210,7 @@ class Config(_Strict):
         for what, names in (
             ("server", [s.name for s in self.server]),
             ("schedule", [s.name for s in self.schedule]),
+            ("toolset", [t for s in self.server for t in s.toolsets] + ["files", "schedules"]),
         ):
             if len(set(names)) != len(names):
                 raise ValueError(f"{what} names must be unique")

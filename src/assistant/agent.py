@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from assistant import toolsets
 from assistant.budget import Budget, BudgetExceeded
 from assistant.clock import Clock
 from assistant.config import Config
@@ -45,7 +46,7 @@ Rules:
 - The operator's latest message starts with a [context] line (current time, model, earlier
   conversation summary) added by the runtime; it is accurate.
 - The operator's timezone is {tz}.
-
+{catalog}
 {core}"""
 # The system prompt (and the tool list after it) must stay byte-identical between calls so
 # local servers can reuse their prompt cache; anything that changes goes in CONTEXT instead.
@@ -94,6 +95,7 @@ class Agent:
         return SYSTEM.format(
             name=self.config.assistant.name,
             tz=self.config.assistant.timezone,
+            catalog=f"\n{self.catalog().render()}\n" if self.lazy else "",
             core=self.memory.pinned_core(),
         )
 
@@ -105,8 +107,82 @@ class Agent:
             summary=f" · earlier in this conversation (summary): {summary}" if summary else "",
         )
 
-    def tools(self) -> list[ToolSpec]:
+    # ------------------------------------------------------------ tools (feature 008)
+
+    @property
+    def lazy(self) -> bool:
+        return self.config.tools.lazy
+
+    def all_specs(self) -> list[ToolSpec]:
         return [*self.memory.specs(), *self.builtin_specs, *self.hub.specs()]
+
+    def catalog(self) -> toolsets.Catalog:
+        """Rebuilt on demand (cheap): follows servers going up or down."""
+        up = {s["server"]: bool(s["up"]) for s in self.hub.status()}
+        return toolsets.build(self.config, [*self.all_specs(), toolsets.LOAD_SPEC], up)
+
+    def tools(self, conversation: str = "") -> list[ToolSpec]:
+        if not self.lazy:
+            return self.all_specs()
+        loaded = self.state.toolsets_active(conversation) if conversation else {}
+        return self.catalog().tool_specs(loaded)
+
+    def _toolset_audit(self, conversation: str, origin: str, name: str, outcome: str) -> None:
+        self.state.audit(
+            "toolset", conversation=conversation, origin=origin, target=name, outcome=outcome
+        )
+
+    def prepare_tools(self, conversation: str, text: str, turn: int, origin: str) -> None:
+        """Turn start: prefetch toolsets matching the operator's words, unload idle ones."""
+        cat = self.catalog()
+        active = self.state.toolsets_active(conversation)
+        earlier = [
+            t["text"] for t in self.state.recent_turns(conversation, 4) if t["role"] == "user"
+        ][-2:]
+        lim = self.config.tools
+        picked = cat.prefetch(text, earlier, lim.threshold, lim.max_auto)
+        for name, _, words in picked:
+            self.state.toolset_load(conversation, name, turn, f"auto: {', '.join(words)}")
+            if name not in active:
+                self._toolset_audit(
+                    conversation, origin, name, f"loaded: auto ({', '.join(words)})"
+                )
+        chosen = {p[0] for p in picked}
+        for name, row in active.items():
+            if name in chosen:
+                continue
+            idle = turn - max(int(row["loaded_turn"]), int(row["last_used_turn"]))
+            if name not in cat.sets or idle >= lim.idle_turns:
+                self.state.toolset_unload(conversation, name)
+                self._toolset_audit(conversation, origin, name, "unloaded: idle")
+
+    def load_toolsets(
+        self, conversation: str, origin: str, names: list[str], turn: int
+    ) -> tuple[str, bool]:
+        cat = self.catalog()
+        bad = [n for n in names if n not in cat.sets]
+        if bad:
+            for n in bad:
+                self._toolset_audit(conversation, origin, n, f"refused: unknown toolset '{n}'")
+            return json.dumps(
+                {"error": f"unknown toolset '{bad[0]}'", "toolsets": list(cat.sets)}
+            ), True
+        down = [n for n in names if not cat.sets[n].available]
+        if down:
+            ts = cat.sets[down[0]]
+            return json.dumps(
+                {"error": f"toolset '{ts.name}' is unavailable (server {ts.server} is down)"}
+            ), True
+        active = self.state.toolsets_active(conversation)
+        loaded: list[str] = []
+        already: list[str] = []
+        for n in names:
+            (already if n in active else loaded).append(n)
+            self.state.toolset_load(conversation, n, turn, "model")
+            if n not in active:
+                self._toolset_audit(conversation, origin, n, "loaded: model")
+        tools = [t for n in names for t in cat.sets[n].tools]
+        return json.dumps({"loaded": loaded, "already_loaded": already, "tools": tools}), False
 
     async def warm_up(self, provider: Provider) -> None:
         """Have a local model read the fixed prompt once, so the first real message is fast."""
@@ -146,11 +222,13 @@ class Agent:
         on_progress: Notify | None = None,
     ) -> TurnResult:
         self.budget.new_turn()
+        turn = self.state.operator_turn(conversation, advance=True)
+        if self.lazy:
+            self.prepare_tools(conversation, text, turn, origin)
         conv = self.state.conversation_get(conversation) or {}
         system = self.system_prompt()
         ctx = self.context(conv.get("summary", ""))
         messages = [*self.history(conversation), Msg("user", [TextBlock(ctx + text)])]
-        tools = self.tools()
         used: list[str] = []
         result = TurnResult("")
         while True:
@@ -159,6 +237,7 @@ class Agent:
             except BudgetExceeded as exc:
                 result = TurnResult(f"⛔ {exc}. Stopping here.", used, "budget")
                 break
+            tools = self.tools(conversation)  # toolsets loaded mid-turn show up on the next step
             t0 = self.clock.mono()
             try:
                 reply = await self.provider.complete(
@@ -189,7 +268,8 @@ class Agent:
                 tokens_out=reply.usage_out,
                 cost=cost,
                 outcome=f"{reply.stop_reason} {self.clock.mono() - t0:.1f}s"
-                + (f" via {reply.served_by}" if reply.served_by else ""),
+                + (f" via {reply.served_by}" if reply.served_by else "")
+                + f" tools={toolsets.spec_chars(tools)}",
             )
             calls = reply.tool_uses
             if not calls:
@@ -200,7 +280,9 @@ class Agent:
             for call in calls:
                 if on_progress is not None:
                     await on_progress()
-                content, is_err, label = await self._run_tool(call, origin, conversation, chat_id)
+                content, is_err, label = await self._run_tool(
+                    call, origin, conversation, chat_id, turn
+                )
                 used.append(f"{call.name} {label}")
                 results.append(ToolResult(call.id, content, is_err))
             messages.append(Msg("user", results))
@@ -212,8 +294,28 @@ class Agent:
         return result
 
     async def _run_tool(
-        self, call: ToolUse, origin: str, conversation: str, chat_id: int
+        self, call: ToolUse, origin: str, conversation: str, chat_id: int, turn: int = 0
     ) -> tuple[str, bool, str]:
+        if self.lazy:
+            if call.name == toolsets.LOAD_SPEC.name:
+                try:
+                    self.budget.check_tool()
+                except BudgetExceeded as exc:
+                    return json.dumps({"error": str(exc)}), True, "budget"
+                self.budget.record_tool()
+                raw = call.input.get("toolsets")
+                names = [str(n) for n in raw] if isinstance(raw, list) else [str(raw)]
+                content, is_err = self.load_toolsets(conversation, origin, names, turn)
+                return content, is_err, "error" if is_err else "ok"
+            cat = self.catalog()
+            owner = cat.toolset_of(call.name)
+            if owner is not None:
+                if owner not in self.state.toolsets_active(conversation):
+                    # a known, allowed tool: load its toolset and run the call (policy and
+                    # approvals still apply; `never` tools are not in the catalog at all)
+                    self.state.toolset_load(conversation, owner, turn, f"called {call.name}")
+                    self._toolset_audit(conversation, origin, owner, f"loaded: called {call.name}")
+                self.state.toolset_used(conversation, owner, turn)
         if call.name.startswith("memory__"):
             content, is_err = self.memory.call(call.name, call.input)
             self.state.audit(

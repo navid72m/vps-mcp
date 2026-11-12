@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 HELP = (
     "Commands: /new · /done · /status · /usage · /remind <in 15m|at 14:00> <text> · /schedules · "
     "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /ls [path] · /cat <path> · "
-    "/send <path> · /stop · /resume · /forget · /model [name]"
+    "/send <path> · /stop · /resume · /forget · /model [name] · /tools"
 )
 
 
@@ -42,6 +42,7 @@ async def dispatch(a: Assistant, chat_id: int, text: str) -> None:
         "/resume": resume,
         "/forget": forget,
         "/model": model,
+        "/tools": tools,
     }.get(cmd)
     if handler is None:
         await a.channel.send(chat_id, f"Unknown command. {HELP}")
@@ -317,3 +318,42 @@ async def send_cmd(a: Assistant, chat_id: int, rest: str) -> None:
         await a.channel.send_document(chat_id, p)
     except Exception as exc:  # noqa: BLE001
         await a.channel.send(chat_id, f"⚠️ Failed to upload file: {exc}")
+
+
+async def tools(a: Assistant, chat_id: int, rest: str) -> None:
+    await a.channel.send(chat_id, tools_text(a, chat_id))
+
+
+def tools_text(a: Assistant, chat_id: int) -> str:
+    from assistant.toolsets import spec_chars
+
+    agent = a.agent
+    if not agent.lazy:
+        n = len(agent.all_specs())
+        size = spec_chars(agent.all_specs())
+        return (
+            f"🧰 Lazy loading is off: all {n} tools on every call · ~{size // 4 / 1000:.1f}k tokens"
+        )
+    cat = agent.catalog()
+    conv = a.state.conversation_current(chat_id)
+    cid = str(conv["id"]) if conv else ""
+    active = a.state.toolsets_active(cid) if cid else {}
+    turn = a.state.operator_turn(cid) if cid else 0
+    size, full = cat.size(active), cat.full_size()
+    lines = [
+        f"🧰 Tools: {len(cat.core)} core + {len(active)} loaded toolset(s) · "
+        f"~{size // 4 / 1000:.1f}k tokens (everything: ~{full // 4 / 1000:.1f}k)",
+        "Core: " + ", ".join(cat.core),
+    ]
+    idle = []
+    for name, ts in cat.sets.items():
+        row = active.get(name)
+        if row is None:
+            idle.append(f"{name} ({len(ts.tools)})" + ("" if ts.available else " [down]"))
+            continue
+        ago = turn - max(int(row["loaded_turn"]), int(row["last_used_turn"]))
+        when = "this turn" if ago <= 0 else f"{ago} turn(s) ago"
+        lines.append(f"▶️ {name} ({len(ts.tools)}): {row['reason']} · {when}")
+    if idle:
+        lines.append("Not loaded: " + " · ".join(idle))
+    return "\n".join(lines)

@@ -114,7 +114,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     async def servers() -> None:
         from assistant.toolhub import ToolHub
 
-        hub = ToolHub(cfg.server, State(cfg.state_dir / "assistant.db"))
+        state_db = State(cfg.state_dir / "assistant.db")
+        hub = ToolHub(cfg.server, state_db)
         await hub.connect()
         for s in hub.status():
             state = "ok" if s["up"] else f"DOWN ({s['error']})"
@@ -122,6 +123,7 @@ def cmd_check(args: argparse.Namespace) -> int:
                 f"{s['server']}: {state}, {s['tools']} tools ({s['auto']} auto, {s['ask']} ask, "
                 f"{s['never']} never)"
             )
+        tools_summary(cfg, hub, state_db)
         await hub.close()
 
     asyncio.run(servers())
@@ -130,6 +132,42 @@ def cmd_check(args: argparse.Namespace) -> int:
     mem = AssistantMemory(cfg)
     print(f"memory: {'ok' if mem.available else 'unavailable ' + str(mem.error)}")
     return 0
+
+
+class _Quiet:
+    """Stands in for Telegram when only the tool catalog is needed."""
+
+    async def send(self, *a: object, **k: object) -> int:
+        return 0
+
+
+def tools_summary(cfg: cfgmod.Config, hub: object, state_db: State) -> None:
+    from typing import Any, cast
+
+    from assistant.app import Assistant
+    from assistant.memory import AssistantMemory
+    from assistant.toolsets import spec_chars
+
+    a = Assistant(
+        cfg,
+        provider=make_router(cfg, state_db),
+        channel=cast(Any, _Quiet()),
+        state=state_db,
+        hub=cast(Any, hub),
+        memory=AssistantMemory(cfg),
+    )
+    cat = a.agent.catalog()
+    full = spec_chars(a.agent.all_specs())
+    if not cfg.tools.lazy:
+        print(f"tools: lazy off · all tools on every call · ~{full // 4 / 1000:.1f}k tokens")
+        return
+    size = cat.size()
+    print(
+        f"tools: lazy on · {len(cat.core)} core · {len(cat.sets)} toolsets · tool section "
+        f"~{size // 4 / 1000:.1f}k tokens (all: ~{full // 4 / 1000:.1f}k, {100 * size // max(1, full)}%)"
+    )
+    for w in cat.warnings:
+        print(f"warning: {w}")
 
 
 def cmd_service(args: argparse.Namespace) -> int:

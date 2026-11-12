@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS audit (
   server TEXT, tool TEXT, target TEXT, outcome TEXT, tokens_in INTEGER, tokens_out INTEGER,
   cost REAL
 );
+CREATE TABLE IF NOT EXISTS toolsets_active (
+  conversation TEXT, name TEXT, loaded_turn INTEGER, last_used_turn INTEGER, reason TEXT,
+  PRIMARY KEY (conversation, name)
+);
 CREATE INDEX IF NOT EXISTS turns_conv ON turns (conversation, id);
 CREATE INDEX IF NOT EXISTS audit_ts ON audit (ts);
 """
@@ -56,6 +60,7 @@ AUDIT_KINDS = (
     "error",
     "memory_save",
     "system",
+    "toolset",
 )
 
 
@@ -145,6 +150,35 @@ class State:
             "INSERT INTO turns (conversation, ts, role, text, tool_summary) VALUES (?,?,?,?,?)",
             (cid, ts, role, text[:TEXT_CAP], tool_summary[:1000]),
         )
+
+    def operator_turn(self, cid: str, *, advance: bool = False) -> int:
+        """Monotonic operator-turn number of a conversation (old turns get folded away)."""
+        key = f"turn_no:{cid}"
+        n = int(self.kv_get(key, "0") or 0) + (1 if advance else 0)
+        if advance:
+            self.kv_set(key, str(n))
+        return n
+
+    # loaded toolsets per conversation (feature 008)
+    def toolsets_active(self, cid: str) -> dict[str, dict[str, Any]]:
+        rows = self.x("SELECT * FROM toolsets_active WHERE conversation = ?", (cid,)).fetchall()
+        return {str(r["name"]): dict(r) for r in rows}
+
+    def toolset_load(self, cid: str, name: str, turn: int, reason: str) -> None:
+        self.x(
+            "INSERT INTO toolsets_active VALUES (?,?,?,?,?) ON CONFLICT(conversation, name) "
+            "DO UPDATE SET loaded_turn = excluded.loaded_turn, reason = excluded.reason",
+            (cid, name, turn, turn, reason[:200]),
+        )
+
+    def toolset_used(self, cid: str, name: str, turn: int) -> None:
+        self.x(
+            "UPDATE toolsets_active SET last_used_turn = ? WHERE conversation = ? AND name = ?",
+            (turn, cid, name),
+        )
+
+    def toolset_unload(self, cid: str, name: str) -> None:
+        self.x("DELETE FROM toolsets_active WHERE conversation = ? AND name = ?", (cid, name))
 
     def recent_turns(self, cid: str, n: int) -> list[dict[str, Any]]:
         rows = self.x(

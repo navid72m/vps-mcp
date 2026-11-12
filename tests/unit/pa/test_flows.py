@@ -23,7 +23,8 @@ async def test_question_with_readonly_tool_and_followup(tmp_path: Path) -> None:
     p = ScriptedProvider(
         [use("ops__status"), say("web is running, worker failed."), say("Disk is fine.")]
     )
-    h = await harness(tmp_path, p)
+    # inspects the full offered tool list: the pre-008 behaviour (lazy flows: test_lazy_flow.py)
+    h = await harness(tmp_path, p, tools={"lazy": False})
     await h.say("Is everything OK on the server?")
     await h.finish()
     assert h.tg.actions  # typing indicator

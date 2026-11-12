@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -67,7 +68,7 @@ async def test_model_calls_record_their_duration(tmp_path: Path) -> None:
     await h.say("hi")
     await h.finish()
     calls = [r for r in h.state.audit_since("2000-01-01") if r["kind"] == "model_call"]
-    assert calls[-1]["outcome"].startswith("end_turn ") and calls[-1]["outcome"].endswith("s")
+    assert re.fullmatch(r"end_turn \d+\.\ds tools=\d+", calls[-1]["outcome"])
 
 
 async def test_fallback_answers_when_the_model_stalls(tmp_path: Path) -> None:
@@ -94,7 +95,7 @@ async def test_fallback_answers_when_the_model_stalls(tmp_path: Path) -> None:
     await h.finish()
     assert h.tg.texts()[-1] == "from backup"
     calls = [r for r in h.state.audit_since("2000-01-01") if r["kind"] == "model_call"]
-    assert calls[-1]["outcome"].endswith("via bk")
+    assert " via bk " in calls[-1]["outcome"]
 
 
 async def test_fallback_failure_reports_both(tmp_path: Path) -> None:
