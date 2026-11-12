@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from assistant import commands
+from assistant import commands, files
 from assistant.agent import Agent
 from assistant.approvals import Approvals, Signer
 from assistant.budget import Budget, BudgetExceeded
@@ -98,6 +98,7 @@ class Assistant:
         self.agent = Agent(config, provider, hub, memory, self.budget, state, self.clock)
         self.router = provider if isinstance(provider, ModelRouter) else None
         specs = self.schedule_specs()
+        specs.extend(self.files_specs())
         if self.router is not None:
             self.budget.prices = self.router.profile.prices
             if len(self.router.profiles) > 1:
@@ -337,6 +338,143 @@ class Assistant:
             ),
         ]
 
+    def files_specs(self) -> list[ToolSpec]:
+        return [
+            ToolSpec(
+                "files__read",
+                "Read text content of a file on this laptop. Supports ~, absolute, or relative paths. "
+                "Returns line-numbered content with total lines.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to the file, e.g. '~/Documents/report.txt' or 'config.toml'",
+                        },
+                        "start_line": {
+                            "type": "integer",
+                            "description": "1-based start line number (default 1)",
+                        },
+                        "end_line": {
+                            "type": "integer",
+                            "description": "1-based end line number (default 500)",
+                        },
+                    },
+                    "required": ["path"],
+                },
+            ),
+            ToolSpec(
+                "files__write",
+                "Create or overwrite a file on this laptop. Automatically creates parent directories.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to file, e.g. '~/notes/summary.md'",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The full text content to write",
+                        },
+                        "overwrite": {
+                            "type": "boolean",
+                            "description": "Set to true to overwrite if file already exists (default false)",
+                        },
+                    },
+                    "required": ["path", "content"],
+                },
+            ),
+            ToolSpec(
+                "files__edit",
+                "Find and replace target text in a file on this laptop.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Path to file"},
+                        "target": {"type": "string", "description": "Exact text to find"},
+                        "replacement": {
+                            "type": "string",
+                            "description": "Text to replace target with",
+                        },
+                    },
+                    "required": ["path", "target", "replacement"],
+                },
+            ),
+            ToolSpec(
+                "files__list",
+                "List files and directories at a path on this laptop. Returns names, types, sizes, and modified dates.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Directory path (default '~')",
+                        },
+                        "max_depth": {
+                            "type": "integer",
+                            "description": "Directory depth (1 to 3, default 1)",
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Glob filter pattern, e.g. '*.py' or '*.json' (default '*')",
+                        },
+                        "include_hidden": {
+                            "type": "boolean",
+                            "description": "Include hidden files starting with . (default false)",
+                        },
+                    },
+                },
+            ),
+            ToolSpec(
+                "files__search",
+                "Search for files by name glob and/or grep inside file contents on this laptop.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Base directory to search (default '~')",
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Text query to grep for inside files",
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Filename glob pattern, e.g. '*.md' (default '*')",
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of matches to return (default 25)",
+                        },
+                    },
+                },
+            ),
+            ToolSpec(
+                "files__info",
+                "Get detailed metadata about a file or directory (size, modified time, exists, type).",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Path to inspect"},
+                    },
+                    "required": ["path"],
+                },
+            ),
+            ToolSpec(
+                "files__delete",
+                "Delete a file or empty directory on this laptop.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Path to delete"},
+                    },
+                    "required": ["path"],
+                },
+            ),
+        ]
+
     def switch_spec(self) -> ToolSpec:
         assert self.router is not None
         names = list(self.router.profiles)
@@ -470,6 +608,50 @@ class Assistant:
                 ),
                 False,
             )
+
+        if name.startswith("files__"):
+            tool_op = name.removeprefix("files__")
+            if tool_op == "read":
+                res = files.files_read(
+                    str(args.get("path", "")),
+                    int(args.get("start_line", 1) or 1),
+                    int(
+                        args.get("end_line", files.DEFAULT_SLICE_LINES) or files.DEFAULT_SLICE_LINES
+                    ),
+                )
+            elif tool_op == "write":
+                res = files.files_write(
+                    str(args.get("path", "")),
+                    str(args.get("content", "")),
+                    bool(args.get("overwrite", False)),
+                )
+            elif tool_op == "edit":
+                res = files.files_edit(
+                    str(args.get("path", "")),
+                    str(args.get("target", "")),
+                    str(args.get("replacement", "")),
+                )
+            elif tool_op == "list":
+                res = files.files_list(
+                    str(args.get("path", "~")),
+                    int(args.get("max_depth", 1) or 1),
+                    str(args.get("pattern", "*") or "*"),
+                    bool(args.get("include_hidden", False)),
+                )
+            elif tool_op == "search":
+                res = files.files_search(
+                    str(args.get("path", "~")),
+                    str(args.get("query", "")),
+                    str(args.get("pattern", "*") or "*"),
+                    int(args.get("max_results", 25) or 25),
+                )
+            elif tool_op == "info":
+                res = files.files_info(str(args.get("path", "")))
+            elif tool_op == "delete":
+                res = files.files_delete(str(args.get("path", "")))
+            else:
+                return f"unknown files operation '{tool_op}'", True
+            return json.dumps(res), not res.get("ok", False)
 
         return f"unknown tool {name}", True
 

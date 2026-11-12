@@ -6,6 +6,7 @@ import contextlib
 import re
 from typing import TYPE_CHECKING
 
+from assistant import files
 from assistant.config import SLUG_RE
 from assistant.scheduler import Cadence
 
@@ -14,8 +15,8 @@ if TYPE_CHECKING:
 
 HELP = (
     "Commands: /new · /done · /status · /usage · /remind <in 15m|at 14:00> <text> · /schedules · "
-    "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /stop · /resume · "
-    "/forget · /model [name]"
+    "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /ls [path] · /cat <path> · "
+    "/stop · /resume · /forget · /model [name]"
 )
 
 
@@ -33,6 +34,8 @@ async def dispatch(a: Assistant, chat_id: int, text: str) -> None:
         "/remind": remind,
         "/schedules": schedules,
         "/schedule": schedule,
+        "/ls": ls,
+        "/cat": cat,
         "/stop": stop,
         "/resume": resume,
         "/forget": forget,
@@ -247,3 +250,45 @@ async def model(a: Assistant, chat_id: int, rest: str) -> None:
         if alias != a.router.current
     ]
     await a.channel.send(chat_id, "Models:\n" + "\n".join(lines), buttons)
+
+
+async def ls(a: Assistant, chat_id: int, rest: str) -> None:
+    path = rest.strip() or "~"
+    res = files.files_list(path, max_depth=1)
+    if not res.get("ok"):
+        await a.channel.send(chat_id, f"⚠️ Error: {res.get('error', 'failed to list directory')}")
+        return
+    entries = res.get("entries", [])
+    if not entries:
+        await a.channel.send(chat_id, f"📁 `{res.get('path')}` is empty.")
+        return
+    lines = [f"📁 `{res.get('path')}` ({len(entries)} items):"]
+    for e in entries[:40]:
+        icon = "📁" if e["type"] == "directory" else "📄"
+        size_str = f" ({e['size_bytes']:,} B)" if e["type"] == "file" else ""
+        lines.append(f"{icon} `{e['name']}`{size_str}")
+    if len(entries) > 40:
+        lines.append(f"... and {len(entries) - 40} more")
+    await a.channel.send(chat_id, "\n".join(lines))
+
+
+async def cat(a: Assistant, chat_id: int, rest: str) -> None:
+    path = rest.strip()
+    if not path:
+        await a.channel.send(chat_id, "Usage: `/cat <path>` (e.g. `/cat ~/notes.txt`)")
+        return
+    res = files.files_read(path, start_line=1, end_line=60)
+    if not res.get("ok"):
+        await a.channel.send(chat_id, f"⚠️ Error: {res.get('error', 'failed to read file')}")
+        return
+    if res.get("is_binary"):
+        await a.channel.send(
+            chat_id,
+            f"📄 `{res.get('path')}`: Binary file ({res.get('size_bytes', 0):,} bytes)",
+        )
+        return
+    content = res.get("content", "")
+    total = res.get("total_lines", 0)
+    header = f"📄 `{res.get('path')}` ({total} lines):"
+    snippet = content[:3500]
+    await a.channel.send(chat_id, f"{header}\n```\n{snippet}\n```")

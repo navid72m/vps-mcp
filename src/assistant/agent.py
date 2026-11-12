@@ -227,8 +227,18 @@ class Agent:
             return content, is_err, "error" if is_err else "ok"
         if self.builtin is not None and call.name in {t.name for t in self.builtin_specs}:
             content, is_err = await self.builtin(call.name, dict(call.input), chat_id)
-            server = "schedule" if call.name.startswith("schedule__") else "assistant"
-            tool = call.name.removeprefix("assistant__").removeprefix("schedule__")
+            server = (
+                "schedule"
+                if call.name.startswith("schedule__")
+                else "files"
+                if call.name.startswith("files__")
+                else "assistant"
+            )
+            tool = (
+                call.name.removeprefix("assistant__")
+                .removeprefix("schedule__")
+                .removeprefix("files__")
+            )
             self.state.audit(
                 "tool_call",
                 conversation=conversation,
