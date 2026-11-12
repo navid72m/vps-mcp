@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS toolsets_active (
 CREATE INDEX IF NOT EXISTS turns_conv ON turns (conversation, id);
 CREATE INDEX IF NOT EXISTS audit_ts ON audit (ts);
 """
-TEXT_CAP = 8 * 1024
+TEXT_CAP = 32 * 1024  # long pastes (a profile, a log) must survive whole
 AUDIT_KINDS = (
     "model_call",
     "tool_call",

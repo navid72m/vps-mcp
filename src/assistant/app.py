@@ -853,6 +853,13 @@ class Assistant:
                     ("🗑 Discard", self.signer.sign(f"pr:{pid}:d")),
                 ],
             )
+        if self.agent.proposal_error:
+            await self.channel.send(
+                chat_id,
+                "⚠️ I couldn't turn this conversation into memory proposals: "
+                f"{self.agent.proposal_error}. Nothing was saved. Paste the important parts "
+                "again and send /done to retry.",
+            )
         return len(props)
 
     # ------------------------------------------------------------ schedules

@@ -138,7 +138,14 @@ class AssistantMemory:
             tools=[],
             max_tokens=max_tokens,
         )
-        return parse_proposals(reply.text, n)
+        self.last_usage = (reply.usage_in, reply.usage_out)
+        props = parse_proposals(reply.text, n)
+        if props is None:
+            cut = (
+                " (it was cut off at the length limit)" if reply.stop_reason == "max_tokens" else ""
+            )
+            raise ProposalError(f"the model's answer had no usable list of memories{cut}")
+        return props
 
     def save(self, proposal: dict[str, Any], conversation: str) -> dict[str, Any]:
         if self.mem is None:
@@ -156,14 +163,24 @@ class AssistantMemory:
         )
 
 
-def parse_proposals(text: str, n: int) -> list[dict[str, Any]]:
-    m = re.search(r"\{.*\}", text or "", re.S)
-    if not m:
-        return []
-    try:
-        data = json.loads(m.group(0))
-    except ValueError:
-        return []
+class ProposalError(Exception):
+    """The model answered, but not with a usable list of memories."""
+
+
+def parse_proposals(text: str, n: int) -> list[dict[str, Any]] | None:
+    """The memories in the model's answer; None if there is no parsable list at all.
+
+    Models that think out loud put prose (even sample JSON) before the answer, so the last
+    complete `{"memories": ...}` object wins."""
+    dec = json.JSONDecoder()
+    data: Any = None
+    for m in re.finditer(r'\{\s*"memories"', text or ""):
+        try:
+            data, _ = dec.raw_decode(text, m.start())
+        except ValueError:
+            continue
+    if not isinstance(data, dict):
+        return None
     out = []
     for it in (data.get("memories") or [])[:n]:
         if not isinstance(it, dict) or it.get("type") not in TYPES:

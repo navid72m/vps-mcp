@@ -76,7 +76,8 @@ async def done(a: Assistant, chat_id: int, rest: str) -> None:
         chat_id,
         f"✅ Conversation ended. {n} memory proposal(s)."
         if n
-        else "✅ Conversation ended. Nothing worth remembering.",
+        else "✅ Conversation ended."
+        + ("" if a.agent.proposal_error else " Nothing worth remembering."),
     )
 
 

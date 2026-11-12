@@ -102,8 +102,8 @@ def test_state_db_private_and_bounded(tmp_path: Path) -> None:
     st = State(tmp_path / "st" / "a.db")
     assert oct((tmp_path / "st" / "a.db").stat().st_mode & 0o777) == "0o600"
     c = st.conversation_new(1, "2026-11-12T09:00:00")
-    st.add_turn(c["id"], "t", "user", "x" * 20000)
-    assert len(st.recent_turns(c["id"], 5)[0]["text"]) == 8192
+    st.add_turn(c["id"], "t", "user", "x" * 50000)
+    assert len(st.recent_turns(c["id"], 5)[0]["text"]) == 32 * 1024
     for i in range(10):
         st.add_turn(c["id"], "t", "user", f"m{i}")
     dropped = st.drop_old_turns(c["id"], 4)

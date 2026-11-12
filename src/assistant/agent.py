@@ -13,7 +13,7 @@ from assistant import toolsets
 from assistant.budget import Budget, BudgetExceeded
 from assistant.clock import Clock
 from assistant.config import Config
-from assistant.memory import AssistantMemory
+from assistant.memory import AssistantMemory, ProposalError
 from assistant.providers import (
     Msg,
     Provider,
@@ -60,6 +60,7 @@ class TurnResult:
     stopped: str | None = None  # budget / error reason
 
 
+PREFETCH_MAX_CHARS = 1500
 Notify = Callable[[], Awaitable[None]]
 # built-in (non-MCP) tool: (name, args, chat_id, conversation, origin) -> (content, is_error)
 Builtin = Callable[[str, dict[str, Any], int, str, str], Awaitable[tuple[str, bool]]]
@@ -85,6 +86,7 @@ class Agent:
         self.clock = clock
         self.tz = zoneinfo.ZoneInfo(config.assistant.timezone)
         self.builtin_specs: list[ToolSpec] = []
+        self.proposal_error: str | None = None  # why the last /done produced no proposals
         self.builtin: Builtin | None = None
 
     @property
@@ -143,7 +145,9 @@ class Agent:
         cat = self.catalog()
         active = self.state.toolsets_active(conversation)
         lim = self.config.tools
-        picked = cat.prefetch(text, [], lim.threshold, lim.max_auto)
+        # a long paste is content, not a request: its many words would match toolsets at random
+        long_paste = len(text) > PREFETCH_MAX_CHARS
+        picked = [] if long_paste else cat.prefetch(text, [], lim.threshold, lim.max_auto)
         for name, _, words in picked:
             self.state.toolset_load(conversation, name, turn, f"auto: {', '.join(words)}")
             if name not in active:
@@ -370,17 +374,18 @@ class Agent:
     async def end_conversation(self, conversation: str) -> list[dict[str, Any]]:
         """Propose memories for an ended conversation (FR-018). Returns the proposals."""
         self.state.conversation_end(conversation)
+        self.proposal_error = None
         if not self.memory.available:
             return []
         turns = self.state.recent_turns(conversation, 200)
         if len(turns) < 2:
             return []
-        transcript = "\n".join(f"{t['role']}: {t['text']}" for t in turns)[-20000:]
+        transcript = "\n".join(f"{t['role']}: {t['text']}" for t in turns)[-40000:]
         try:
             self.budget.new_turn()
             self.budget.check_model()
             props = await self.memory.extract(
-                self.provider, transcript, self.config.limits.max_proposals, 1500
+                self.provider, transcript, self.config.limits.max_proposals, 4000
             )
             tin, tout = self.memory.last_usage
             cost = self.budget.record_model(tin, tout)
@@ -393,7 +398,17 @@ class Agent:
                 cost=cost,
                 outcome="proposals",
             )
-        except (BudgetExceeded, ProviderError, json.JSONDecodeError) as exc:
-            log.info("no memory proposals: %s", exc)
+        except (BudgetExceeded, ProviderError, ProposalError) as exc:
+            log.warning("no memory proposals: %s", exc)
+            self.proposal_error = str(exc)[:200]
+            tin, tout = self.memory.last_usage
+            self.state.audit(
+                "model_call",
+                conversation=conversation,
+                origin="system",
+                tokens_in=tin,
+                tokens_out=tout,
+                outcome=f"proposals failed: {exc}"[:200],
+            )
             return []
         return props
