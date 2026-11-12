@@ -297,13 +297,22 @@ def files_search(
 
                 fpath = Path(root) / fname
                 ext = fpath.suffix.lower()
-                if ext in SKIP_EXTENSIONS:
-                    if not query_lower:
-                        matches.append({"path": str(fpath), "type": "filename_match"})
+
+                # Check filename match first (exact match or any query word >= 3 chars)
+                q_words = [w for w in query_lower.split() if len(w) >= 3] if query_lower else []
+                is_name_match = False
+                if query_lower:
+                    fname_lower = fname.lower()
+                    if query_lower in fname_lower or (
+                        q_words and any(w in fname_lower for w in q_words)
+                    ):
+                        is_name_match = True
+
+                if is_name_match or not query_lower:
+                    matches.append({"path": str(fpath), "type": "filename_match"})
                     continue
 
-                if not query_lower:
-                    matches.append({"path": str(fpath), "type": "filename_match"})
+                if ext in SKIP_EXTENSIONS:
                     continue
 
                 # Search within content

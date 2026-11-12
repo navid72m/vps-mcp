@@ -68,6 +68,12 @@ class FakeTelegram:
         assert m, request.url.path
         method = m.group(2)
         self.calls.append(method)
+        if method == "sendDocument":
+            self.next_id += 1
+            self.sent.append(
+                {"method": "sendDocument", "text": "document_sent", "message_id": self.next_id}
+            )
+            return httpx2.Response(200, json={"ok": True, "result": {"message_id": self.next_id}})
         body = json.loads(request.content or b"{}")
         if self.fail:
             self.fail -= 1

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 HELP = (
     "Commands: /new · /done · /status · /usage · /remind <in 15m|at 14:00> <text> · /schedules · "
     "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /ls [path] · /cat <path> · "
-    "/stop · /resume · /forget · /model [name]"
+    "/send <path> · /stop · /resume · /forget · /model [name]"
 )
 
 
@@ -37,6 +37,7 @@ async def dispatch(a: Assistant, chat_id: int, text: str) -> None:
         "/schedule": schedule,
         "/ls": ls,
         "/cat": cat,
+        "/send": send_cmd,
         "/stop": stop,
         "/resume": resume,
         "/forget": forget,
@@ -293,3 +294,26 @@ async def cat(a: Assistant, chat_id: int, rest: str) -> None:
     header = f"📄 `{res.get('path')}` ({total} lines):"
     snippet = content[:3500]
     await a.channel.send(chat_id, f"{header}\n```\n{snippet}\n```")
+
+
+async def send_cmd(a: Assistant, chat_id: int, rest: str) -> None:
+    path = rest.strip()
+    if not path:
+        await a.channel.send(chat_id, "Usage: `/send <path>` (e.g. `/send ~/Downloads/book.pdf`)")
+        return
+    p = files.resolve_path(path)
+    if not p.is_file():
+        # Search Downloads or Desktop for fuzzy match
+        matches = files.files_search(path="~/Downloads", query=path, max_results=1).get(
+            "matches", []
+        )
+        if matches:
+            p = files.resolve_path(matches[0]["path"])
+        else:
+            await a.channel.send(chat_id, f"⚠️ File not found: {p}")
+            return
+    await a.channel.send(chat_id, f"Uploading `{p.name}`...")
+    try:
+        await a.channel.send_document(chat_id, p)
+    except Exception as exc:  # noqa: BLE001
+        await a.channel.send(chat_id, f"⚠️ Failed to upload file: {exc}")

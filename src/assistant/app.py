@@ -473,6 +473,24 @@ class Assistant:
                     "required": ["path"],
                 },
             ),
+            ToolSpec(
+                "files__send",
+                "Send a document, PDF, image, or file from this laptop directly to the user's Telegram chat.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to file on laptop to send, e.g. '~/Downloads/book.pdf'",
+                        },
+                        "caption": {
+                            "type": "string",
+                            "description": "Optional caption for the file in Telegram",
+                        },
+                    },
+                    "required": ["path"],
+                },
+            ),
         ]
 
     def switch_spec(self) -> ToolSpec:
@@ -651,6 +669,14 @@ class Assistant:
                 res = files.files_info(str(args.get("path", "")))
             elif tool_op == "delete":
                 res = files.files_delete(str(args.get("path", "")))
+            elif tool_op == "send":
+                p = files.resolve_path(str(args.get("path", "")))
+                caption = str(args.get("caption", ""))
+                try:
+                    mid = await self.channel.send_document(chat_id, p, caption)
+                    res = {"ok": True, "path": str(p), "message_id": mid, "sent": True}
+                except Exception as exc:  # noqa: BLE001
+                    res = {"ok": False, "error": str(exc)}
             else:
                 return f"unknown files operation '{tool_op}'", True
             return json.dumps(res), not res.get("ok", False)

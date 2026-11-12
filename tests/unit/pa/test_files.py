@@ -201,3 +201,25 @@ async def test_commands_cat_and_ls(tmp_path: Path) -> None:
 
     await h.say(f"/ls {tmp_path}")
     assert "note.txt" in h.tg.texts()[-1]
+
+
+@pytest.mark.asyncio
+async def test_files_send_and_command(tmp_path: Path) -> None:
+    doc = tmp_path / "book.pdf"
+    doc.write_bytes(b"%PDF-1.4 dummy content")
+
+    p = ScriptedProvider(
+        [
+            use("files__send", {"path": str(doc), "caption": "Here is your book"}),
+            say("Sent book."),
+        ]
+    )
+    h = await harness(tmp_path, p)
+    await h.say("Send book please")
+    await h.finish()
+    assert "sendDocument" in h.tg.calls
+    assert h.tg.texts()[-1] == "Sent book."
+
+    # Test /send command
+    await h.say(f"/send {doc}")
+    assert any("Uploading" in t for t in h.tg.texts())

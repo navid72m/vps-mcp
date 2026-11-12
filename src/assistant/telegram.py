@@ -8,6 +8,7 @@ import random
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import httpx2
@@ -236,6 +237,39 @@ class TelegramChannel:
                 )
             mid = int(res.get("message_id", 0)) if isinstance(res, dict) else 0
         return mid
+
+    async def send_document(
+        self,
+        chat_id: int,
+        path: Path | str,
+        caption: str = "",
+    ) -> int:
+        """Send a document or file to Telegram chat via multipart upload (up to 50MB)."""
+
+        def _read() -> tuple[str, bytes]:
+            resolved = Path(path).expanduser().resolve()
+            if not resolved.is_file():
+                raise FileNotFoundError(f"file not found: {resolved}")
+            return resolved.name, resolved.read_bytes()
+
+        fname, content = await asyncio.to_thread(_read)
+        url = f"{API}/bot{self._token}/sendDocument"
+        data: dict[str, str] = {"chat_id": str(chat_id)}
+        if caption:
+            data["caption"] = caption[:1024]
+        resp = await self._http.post(
+            url,
+            data=data,
+            files={"document": (fname, content, "application/octet-stream")},
+            timeout=120.0,
+        )
+        res_data = resp.json()
+        if not res_data.get("ok"):
+            raise RuntimeError(
+                f"telegram sendDocument failed: {res_data.get('description', resp.status_code)}"
+            )
+        result = res_data.get("result", {})
+        return int(result.get("message_id", 0)) if isinstance(result, dict) else 0
 
     async def edit(
         self, chat_id: int, message_id: int, text: str, buttons: list[Button] | None = None
