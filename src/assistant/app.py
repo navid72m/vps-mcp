@@ -1,0 +1,488 @@
+"""Wiring: lock, Telegram dispatcher, turns, approvals, proposals, scheduler, heartbeat (R7-R13)."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import fcntl
+import logging
+import os
+import signal
+import zoneinfo
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from assistant import commands
+from assistant.agent import Agent
+from assistant.approvals import Approvals, Signer
+from assistant.budget import Budget, BudgetExceeded
+from assistant.clock import Clock, RealClock
+from assistant.config import Config
+from assistant.memory import AssistantMemory
+from assistant.providers import Provider, ToolSpec
+from assistant.providers.router import ModelRouter
+from assistant.scheduler import Cadence, SleepDetector
+from assistant.secrets import SecretMissing
+from assistant.state import State, new_id
+from assistant.telegram import Callback, Message, TelegramChannel
+from assistant.toolhub import ToolHub
+
+log = logging.getLogger(__name__)
+
+
+class AlreadyRunning(Exception):
+    pass
+
+
+class InstanceLock:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.fd: int | None = None
+
+    def acquire(self) -> None:
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            other = os.read(fd, 32).decode(errors="ignore").strip()
+            os.close(fd)
+            raise AlreadyRunning(other or "?") from None
+        os.ftruncate(fd, 0)
+        os.write(fd, str(os.getpid()).encode())
+        self.fd = fd
+
+    def release(self) -> None:
+        if self.fd is not None:
+            fcntl.flock(self.fd, fcntl.LOCK_UN)
+            os.close(self.fd)
+            self.fd = None
+
+
+class Assistant:
+    def __init__(
+        self,
+        config: Config,
+        *,
+        provider: Provider,
+        channel: TelegramChannel,
+        state: State,
+        hub: ToolHub,
+        memory: AssistantMemory,
+        clock: Clock | None = None,
+        approval_poll: float = 0.05,
+    ) -> None:
+        self.config = config
+        self.clock = clock or RealClock()
+        self.state = state
+        self.channel = channel
+        self.memory = memory
+        self.tz = zoneinfo.ZoneInfo(config.assistant.timezone)
+        self.budget = Budget(config, state, self.clock)
+        self.signer = Signer()
+        self.approvals = Approvals(
+            state,
+            channel,
+            self.clock,
+            config.limits.approval_minutes,
+            self.signer,
+            poll=approval_poll,
+        )
+        hub.approvals, hub.budget = self.approvals, self.budget
+        self.hub = hub
+        self.agent = Agent(config, provider, hub, memory, self.budget, state, self.clock)
+        self.router = provider if isinstance(provider, ModelRouter) else None
+        if self.router is not None:
+            self.budget.prices = self.router.profile.prices
+            if len(self.router.profiles) > 1:
+                self.agent.builtin_specs = [self.switch_spec()]
+                self.agent.builtin = self.builtin
+        self.owner_chat = config.telegram.allowed_user_ids[0]
+        self.turns: dict[int, asyncio.Task[Any]] = {}
+        self.background: set[asyncio.Task[Any]] = set()
+        self.started = self.clock.wall()
+        self.sleep = SleepDetector(self.clock)
+        self.scheduler_task: asyncio.Task[Any] | None = None
+
+    # ----------------------------------------------------------- state flags
+
+    @property
+    def paused(self) -> bool:
+        return self.state.kv_get("paused") == "1"
+
+    def spawn(self, coro: Any) -> asyncio.Task[Any]:
+        task = asyncio.create_task(coro)
+        self.background.add(task)
+        task.add_done_callback(self.background.discard)
+        return task
+
+    # -------------------------------------------------------------- startup
+
+    async def start(self) -> None:
+        await self.hub.connect()
+        self.seed_schedules()
+        if self.state.kv_get("clean_shutdown") == "0":
+            self.state.audit("system", origin="system", outcome="restarted after a crash")
+            with contextlib.suppress(Exception):
+                await self.channel.send(
+                    self.owner_chat,
+                    "♻️ I restarted after an unexpected stop. "
+                    "Pending approvals from before are no longer valid.",
+                )
+        self.state.kv_set("clean_shutdown", "0")
+        for row in self.state.approvals_pending():
+            self.state.approval_set(row["id"], status="voided")
+        if self.router is not None and self.router.profile.local:
+            self.spawn(self.warm_up(self.router.current))
+
+    async def warm_up(self, alias: str) -> None:
+        assert self.router is not None
+        t0 = self.clock.mono()
+        try:
+            await self.agent.warm_up(self.router.provider(alias))
+        except Exception as exc:  # noqa: BLE001 - only an optimisation
+            log.info("model warm-up failed: %s", exc.__class__.__name__)
+            return
+        log.info("model warm-up done in %.0fs", self.clock.mono() - t0)
+
+    async def stop(self) -> None:
+        tasks = list(self.turns.values()) + list(self.background)
+        if self.scheduler_task is not None:
+            tasks.append(self.scheduler_task)
+        for t in tasks:
+            t.cancel()
+        self.state.kv_set("clean_shutdown", "1")
+        with contextlib.suppress(Exception, asyncio.CancelledError):
+            await asyncio.shield(self.hub.close())
+
+    def seed_schedules(self) -> None:
+        now = self.clock.wall()
+        known = {s["name"]: s for s in self.state.schedules()}
+        for s in self.config.schedule:
+            nxt = Cadence.parse(s.cadence).next_after(now, self.tz).isoformat()
+            cur = known.get(s.name)
+            self.state.schedule_upsert(
+                s.name,
+                s.cadence,
+                s.prompt,
+                bool(cur["enabled"]) if cur else s.enabled,
+                cur["next_run"] if cur and cur["cadence"] == s.cadence else nxt,
+                "config",
+            )
+
+    # ---------------------------------------------------------- dispatching
+
+    async def handle(self, update: Message | Callback) -> None:
+        if isinstance(update, Callback):
+            await self.on_callback(update)
+            return
+        age = self.clock.wall() - update.date
+        if age > timedelta(minutes=self.config.telegram.offline_max_age_min):
+            await self.channel.send(
+                update.chat_id,
+                "I was offline when you sent: "
+                f"“{update.text[:80]}”. Please resend if it's still needed.",
+            )
+            return
+        text = update.text.strip()
+        if text.startswith("/"):
+            await commands.dispatch(self, update.chat_id, text)
+            return
+        if self.paused:
+            await self.channel.send(update.chat_id, "⏸ I'm stopped. Send /resume to continue.")
+            return
+        running = self.turns.get(update.chat_id)
+        if running is not None and not running.done():
+            await self.channel.send(
+                update.chat_id,
+                "⏳ Still working on your previous message; "
+                "I'll take this one when it's done. (/stop cancels)",
+            )
+
+        async def after(prev: asyncio.Task[Any] | None) -> None:
+            if prev is not None and not prev.done():
+                with contextlib.suppress(BaseException):
+                    await prev
+            if not self.paused:
+                await self.chat_turn(update.chat_id, text, "chat")
+
+        # never block the dispatcher: approvals arrive through it while a turn waits
+        self.turns[update.chat_id] = asyncio.create_task(after(running))
+
+    def conversation(self, chat_id: int) -> str:
+        conv = self.state.conversation_current(chat_id)
+        if conv is None:
+            conv = self.state.conversation_new(chat_id, self.clock.wall().isoformat())
+        return str(conv["id"])
+
+    async def chat_turn(
+        self, chat_id: int, text: str, origin: str, conversation: str | None = None
+    ) -> str:
+        cid = conversation or self.conversation(chat_id)
+        await self.channel.typing(chat_id)
+
+        async def progress() -> None:
+            await self.channel.typing(chat_id)
+
+        try:
+            self.budget.check_day()
+        except BudgetExceeded as exc:
+            await self.channel.send(chat_id, f"⛔ {exc}. Raise the limit or wait until tomorrow.")
+            return ""
+        try:
+            result = await self.agent.run_turn(
+                cid, text, origin=origin, chat_id=chat_id, on_progress=progress
+            )
+        except asyncio.CancelledError:
+            with contextlib.suppress(Exception):
+                await self.channel.send(chat_id, "⏹ Cancelled.")
+            raise
+        await self.channel.send(chat_id, result.text, markdown=True)
+        return result.text
+
+    # --------------------------------------------------------------- models
+
+    def switch_spec(self) -> ToolSpec:
+        assert self.router is not None
+        names = list(self.router.profiles)
+        return ToolSpec(
+            "assistant__switch_model",
+            "Ask the operator to switch the language model you run on. Use only when the "
+            "operator asks for it. They confirm on their phone; it applies from the next "
+            "message. Models: "
+            + "; ".join(f"{a} = {m.name} ({m.where})" for a, m in self.router.profiles.items()),
+            {
+                "type": "object",
+                "properties": {"model": {"type": "string", "enum": names}},
+                "required": ["model"],
+            },
+        )
+
+    async def builtin(self, name: str, args: dict[str, Any], chat_id: int) -> tuple[str, bool]:
+        if name != "assistant__switch_model" or self.router is None:
+            return f"unknown tool {name}", True
+        alias = str(args.get("model", ""))
+        if alias not in self.router.profiles:
+            return f"unknown model '{alias}'; choose one of {list(self.router.profiles)}", True
+        if alias == self.router.current:
+            return f"already running on {alias}", False
+        m = self.router.profiles[alias]
+        await self.channel.send(
+            chat_id,
+            f"🔀 Switch the model to {alias} ({m.name}, {m.where})?",
+            [
+                (f"Switch to {alias}", self.signer.sign(f"md:{alias}")),
+                (f"Keep {self.router.current}", self.signer.sign("md:")),
+            ],
+        )
+        return "asked the operator to confirm the switch on their phone", False
+
+    def switch_model(self, alias: str) -> str:
+        """Switch now; returns the message for the operator."""
+        if self.router is None:
+            return "Only one model is configured."
+        try:
+            m = self.router.switch(alias)
+            if m.local:
+                self.spawn(self.warm_up(alias))
+        except KeyError:
+            return f"Unknown model '{alias}'. Models: {', '.join(self.router.profiles)}"
+        except SecretMissing as exc:
+            return f"⚠️ Can't switch to {alias}: {exc}"
+        except Exception as exc:  # noqa: BLE001 - provider construction failed
+            return f"⚠️ Can't switch to {alias}: {exc.__class__.__name__}"
+        self.budget.prices = m.prices
+        self.state.kv_set("model", alias)
+        self.state.audit("system", origin="chat", target=f"model {alias}", outcome="switched")
+        return f"🔀 Now using {alias}: {m.name} ({m.where})."
+
+    # ------------------------------------------------------------ callbacks
+
+    async def on_callback(self, cb: Callback) -> None:
+        if cb.data.startswith("ap:"):
+            await self.approvals.on_callback(cb.data, cb.id)
+            return
+        payload = self.signer.verify(cb.data)
+        if payload is None:
+            await self.channel.answer_callback(cb.id, "expired or invalid")
+            return
+        kind, _, rest = payload.partition(":")
+        if kind == "pr":
+            await self.on_proposal(cb, rest)
+        elif kind == "ms":
+            await self.channel.answer_callback(cb.id, "running")
+            await self.run_schedule(rest, missed=True)
+        elif kind == "md":
+            text = self.switch_model(rest) if rest else "👍 Kept the current model."
+            await self.channel.answer_callback(cb.id, "ok")
+            await self.channel.edit(cb.chat_id, cb.message_id, text)
+        elif kind == "fg":
+            n = self.state.forget_all()
+            await self.channel.answer_callback(cb.id, "forgotten")
+            await self.channel.edit(cb.chat_id, cb.message_id, f"🧹 Forgot {n} conversation(s).")
+        else:
+            await self.channel.answer_callback(cb.id, "unknown")
+
+    async def on_proposal(self, cb: Callback, rest: str) -> None:
+        pid, _, choice = rest.partition(":")
+        row = self.state.proposal_get(pid)
+        if row is None or row["status"] != "pending" or choice not in ("s", "d"):
+            await self.channel.answer_callback(cb.id, "expired or already handled")
+            return
+        p = row["payload"]
+        if choice == "d":
+            self.state.proposal_set(pid, "discarded")
+            await self.channel.answer_callback(cb.id, "discarded")
+            await self.channel.edit(cb.chat_id, cb.message_id, f"🗑 Discarded: {p['title']}")
+            return
+        try:
+            res = self.memory.save(p, row["conversation"])
+            self.state.proposal_set(pid, "saved")
+            self.state.audit(
+                "memory_save",
+                conversation=row["conversation"],
+                target=p["subject"],
+                outcome=res["outcome"],
+            )
+            note = {
+                "created": "💾 Saved",
+                "confirmed": "💾 Already known (confirmed)",
+                "conflict": "⚠️ Saved, but it conflicts with an existing memory",
+            }[res["outcome"]]
+            await self.channel.edit(cb.chat_id, cb.message_id, f"{note}: {p['title']}")
+            await self.channel.answer_callback(cb.id, "saved")
+        except Exception as exc:  # noqa: BLE001 - agent-memory refused it (e.g. a secret)
+            self.state.proposal_set(pid, "discarded")
+            msg = getattr(exc, "message", exc.__class__.__name__)
+            self.state.audit(
+                "memory_save",
+                conversation=row["conversation"],
+                target=p["subject"],
+                outcome=f"refused: {msg}"[:200],
+            )
+            await self.channel.edit(cb.chat_id, cb.message_id, f"⛔ Not saved: {msg}")
+            await self.channel.answer_callback(cb.id, "refused")
+
+    async def end_and_propose(self, chat_id: int, conversation: str) -> int:
+        props = await self.agent.end_conversation(conversation)
+        for p in props:
+            pid = new_id("p")
+            self.state.proposal_add(pid, conversation, p)
+            text = (
+                f"💡 Remember this? [{p['type']}] {p['subject']}\n{p['title']}\n\n"
+                f"{p['content']}" + (f"\n\nWhy: {p['why']}" if p.get("why") else "")
+            )
+            await self.channel.send(
+                chat_id,
+                text,
+                [
+                    ("💾 Save", self.signer.sign(f"pr:{pid}:s")),
+                    ("🗑 Discard", self.signer.sign(f"pr:{pid}:d")),
+                ],
+            )
+        return len(props)
+
+    # ------------------------------------------------------------ schedules
+
+    async def run_schedule(self, name: str, missed: bool = False) -> None:
+        sched = next((s for s in self.state.schedules() if s["name"] == name), None)
+        if sched is None or self.paused:
+            return
+        now = self.clock.wall()
+        self.state.schedule_set(name, last_run=now.isoformat())
+        self.state.audit(
+            "schedule_run", origin="schedule", target=name, outcome="missed-run" if missed else "ok"
+        )
+        conv = self.state.conversation_new(self.owner_chat, now.isoformat())
+        await self.channel.send(self.owner_chat, f"⏰ {name}")
+        await self.chat_turn(self.owner_chat, sched["prompt"], "schedule", str(conv["id"]))
+        self.state.conversation_end(str(conv["id"]))
+
+    async def tick(self) -> None:
+        """One scheduler pass: sleep detection, due schedules, heartbeat, idle conversations."""
+        now = self.clock.wall()
+        gap = self.sleep.check()
+        schedules = [s for s in self.state.schedules() if s["enabled"]]
+        if gap is not None:
+            missed = [s for s in schedules if s["next_run"] and s["next_run"] <= now.isoformat()]
+            for s in schedules:
+                if s["next_run"] and s["next_run"] <= now.isoformat():
+                    self.state.schedule_set(
+                        s["name"],
+                        next_run=Cadence.parse(s["cadence"]).next_after(now, self.tz).isoformat(),
+                    )
+            if missed:
+                names = ", ".join(s["name"] for s in missed)
+                latest = max(missed, key=lambda s: str(s["next_run"]))
+                await self.channel.send(
+                    self.owner_chat,
+                    f"😴 I was asleep and missed: {names}. Nothing was replayed.",
+                    [(f"▶️ Run {latest['name']} now", self.signer.sign(f"ms:{latest['name']}"))],
+                )
+            return
+        for s in schedules:
+            if s["next_run"] and s["next_run"] <= now.isoformat():
+                self.state.schedule_set(
+                    s["name"],
+                    next_run=Cadence.parse(s["cadence"]).next_after(now, self.tz).isoformat(),
+                )
+                if not self.paused:
+                    self.spawn(self.run_schedule(s["name"]))
+        await self.heartbeat(now)
+        await self.sweep_idle(now)
+
+    async def heartbeat(self, now: datetime) -> None:
+        cadence = self.config.assistant.heartbeat
+        if not cadence:
+            return
+        nxt = self.state.kv_get("next_heartbeat")
+        if nxt is None:
+            self.state.kv_set(
+                "next_heartbeat", Cadence.parse(cadence).next_after(now, self.tz).isoformat()
+            )
+            return
+        if nxt > now.isoformat():
+            return
+        self.state.kv_set(
+            "next_heartbeat", Cadence.parse(cadence).next_after(now, self.tz).isoformat()
+        )
+        self.state.kv_set("last_heartbeat", now.isoformat())
+        up = now - self.started
+        await self.channel.send(
+            self.owner_chat,
+            f"💓 Alive · up {int(up.total_seconds() // 3600)}h · {self.budget.usage_text()}",
+        )
+
+    async def sweep_idle(self, now: datetime) -> None:
+        cutoff = (now - timedelta(minutes=self.config.limits.idle_minutes)).isoformat()
+        for conv in self.state.idle_conversations(cutoff):
+            if self.turns.get(int(conv["chat_id"])) and not self.turns[int(conv["chat_id"])].done():
+                continue
+            await self.end_and_propose(int(conv["chat_id"]), str(conv["id"]))
+
+    # ----------------------------------------------------------- main loops
+
+    async def scheduler_loop(self, interval: float = 30.0) -> None:
+        while True:
+            try:
+                await self.tick()
+            except Exception:  # noqa: BLE001 - the loop must survive
+                log.exception("scheduler tick failed")
+            await asyncio.sleep(interval)
+
+    async def run(self) -> None:
+        main = asyncio.current_task()
+        if main is not None:  # launchd/systemd stop with SIGTERM: shut down cleanly, not a crash
+            with contextlib.suppress(NotImplementedError, RuntimeError):
+                asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, main.cancel)
+        await self.start()
+        self.scheduler_task = asyncio.create_task(self.scheduler_loop())
+        try:
+            async for upd in self.channel.updates():
+                try:
+                    await self.handle(upd)
+                except Exception:  # noqa: BLE001
+                    log.exception("handling an update failed")
+        finally:
+            await self.stop()

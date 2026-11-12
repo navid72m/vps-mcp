@@ -64,7 +64,7 @@ def test_copy_name_and_marker(rt):
     assert m.startswith("vps-mcp-copy:cpy_1:") and len(m.split(":")[-1]) == 32
     assert copies.verify_marker(key, "cpy_1", name, m)
     assert not copies.verify_marker(key, "cpy_1", name + "x", m)
-    assert not copies.verify_marker(key, "cpy_1", name, m[:-1] + "0")
+    assert not copies.verify_marker(key, "cpy_1", name, m[:-1] + ("1" if m[-1] == "0" else "0"))
     assert not copies.verify_marker(key, "cpy_1", name, None)
 
 

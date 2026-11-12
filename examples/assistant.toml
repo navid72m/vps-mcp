@@ -1,0 +1,72 @@
+# Personal assistant (specs/007-assistant-runtime). Copy to ~/.config/assistant/assistant.toml.
+# Secrets are NOT in this file: store them in the macOS Keychain (each command prompts):
+#   security add-generic-password -U -s vps-mcp-assistant -a telegram_bot_token -w
+#   (plus one key per cloud model you use; see [models.*] below)
+
+[assistant]
+name = "Assistant"
+timezone = "Europe/Berlin"            # IANA zone used for schedules and "today"
+heartbeat = "daily 21:00"             # daily "I'm alive" message; "" disables it
+
+[telegram]
+allowed_user_ids = [123456789]        # your Telegram user id (ask @userinfobot); nobody else gets answers
+offline_max_age_min = 60              # older messages (sent while offline) are not processed
+
+[secrets]
+provider = "keychain"                 # or "file" (a 0600 TOML file) on a non-Mac box
+service = "vps-mcp-assistant"
+
+[model]                               # the default model
+alias = "qwen"                        # name used by /model
+provider = "openai"                   # any OpenAI-compatible server: LM Studio, Ollama, Gemini, ...
+name = "qwen/qwen3.5-9b"              # the model id the server lists at /v1/models
+base_url = "http://localhost:1234/v1" # LM Studio's local server (Ollama: http://localhost:11434/v1)
+timeout_s = 300                       # local models can be slow on long prompts
+reasoning_effort = "none"             # no hidden thinking: about 2x faster answers on a laptop
+max_tokens = 2048
+prices = { input_per_mtok = 0.0, output_per_mtok = 0.0 }   # for cost estimates / budgets
+
+# More models to switch to from the phone: "/model", "/model gemini", or just ask
+# ("switch to gemini"), which sends a confirm button. Only the default needs its key at startup.
+[models.gemini]                       # key from aistudio.google.com:
+provider = "openai"                   #   security add-generic-password -U -s vps-mcp-assistant -a gemini_api_key -w
+name = "gemini-2.5-flash"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+api_key_secret = "gemini_api_key"
+prices = { input_per_mtok = 0.3, output_per_mtok = 2.5 }
+
+[models.claude]                       # security add-generic-password -U -s vps-mcp-assistant -a anthropic_api_key -w
+provider = "anthropic"
+name = "claude-sonnet-5"
+prices = { input_per_mtok = 3.0, output_per_mtok = 15.0 }
+
+[limits]
+turn_tool_calls = 12
+turn_model_calls = 8
+turn_tokens = 60000
+day_tokens = 1000000
+day_tool_calls = 300
+day_cost = 5.0                        # USD, estimated from the prices above
+approval_minutes = 10
+history_turns = 12
+idle_minutes = 30
+max_proposals = 5
+
+[memory]
+enabled = true
+store = ""                            # default: agent-memory's store (shared with your other clients)
+project = "personal"
+allow_scopes = ["project:vps-*", "environment:*"]   # also see vps-mcp's memories
+
+[[server]]
+name = "vps"
+command = ["/absolute/path/to/uv", "run", "--directory", "/absolute/path/to/vps-mcp",
+           "vps-mcp", "serve", "--config", "/absolute/path/to/.config/vps-mcp/myvps.toml"]
+allow = ["*"]                         # tool-name globs the model may see
+# read-only tools run without asking; everything else asks on your phone. Override per tool:
+policy = { remove_service = "never", deploy_service = "never", configure_service = "ask" }
+
+[[schedule]]
+name = "morning-briefing"
+cadence = "weekdays 08:00"            # "daily HH:MM", "weekdays HH:MM" or "every Nh"
+prompt = "Morning briefing: server health, anything that failed overnight, open issues. Be brief."

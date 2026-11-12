@@ -14,6 +14,9 @@ Desktop, LM Studio, …) manage **one VPS** safely:
 - **GitLab** (15 optional tools): read code, history, issues, merge requests and CI of allowlisted
   projects with your own token, from the macOS Keychain. Open issues and MRs, and deploy a reviewed
   commit to the VPS with automatic rollback.
+- **Personal assistant** (`assistant`): an always-on agent of its own that you talk to on
+  Telegram. It uses these tools and the shared memory, and asks for approval on your phone
+  before any change. See [Personal assistant](#personal-assistant).
 - **Memory** (5 tools, on by default): **agent-memory**, a managed knowledge store shared by every
   agent and project. It holds facts, decisions, procedures and experiences, with where each one
   came from, how confident it is, and when it expires. It is also a standalone MCP server that
@@ -64,6 +67,7 @@ Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (se
 - [Declared jobs](#declared-jobs-optional)
 - [GitLab](#gitlab-optional)
 - [Memory](#memory)
+- [Personal assistant](#personal-assistant)
 - [Security model](#security-model)
 - [Configuration reference](#configuration-reference)
 - [Troubleshooting](#troubleshooting)
@@ -595,6 +599,99 @@ ranked retrieval keeps recall and never returns an outdated memory:
 
 The pinned core costs about 150 tokens.
 
+## Personal assistant
+
+`assistant` is a background process that is **its own agent**. It runs on your laptop and talks
+to you through a Telegram bot. It thinks with a language model (Claude, or a local model via LM Studio or Ollama,
+or anything else with an OpenAI-compatible API), uses MCP servers such as vps-mcp as its tools, and shares agent-memory with your
+other clients.
+
+**Where it runs.** On your laptop, as a launchd user agent: it starts at login and is restarted
+after a crash. It only makes outgoing connections (Telegram long polling, the model API, the MCP
+servers), so there's no open port, domain or webhook. While the laptop sleeps it is offline. When
+it wakes it sends one "missed" note instead of replaying schedules. Moving it to an always-on box
+later only needs a different service definition (`--systemd-user`) and secrets provider (`file`).
+
+**Setup.**
+
+1. In Telegram, ask **@BotFather** for a bot token (`/newbot`), and **@userinfobot** for your user
+   id.
+2. Store the secrets in the Keychain. Run these in your own Terminal; each one prompts, so nothing
+   is echoed:
+
+   ```bash
+   security add-generic-password -U -s vps-mcp-assistant -a telegram_bot_token -w
+   security add-generic-password -U -s vps-mcp-assistant -a anthropic_api_key -w
+   ```
+
+   The second one is only needed for Claude. A local model needs no key:
+   set `[model] provider = "openai"` and `base_url = "http://localhost:1234/v1"` (LM Studio's
+   server) as shown in the example config. Tool use needs a model that is good at it: small
+   models (4B to 8B) work for simple lookups but get multi-step tasks wrong more often.
+
+   **Several models.** `[model]` is the default; add `[models.<name>]` for others (see the
+   example config). On the phone, `/model` lists them with a button each, `/model gemini`
+   switches at once, and "switch to gemini" makes the assistant send a confirm button (it
+   never switches on its own, so text in a tool result can't move your chats to a cloud
+   model). The choice survives restarts. Only the default model's key is needed at startup;
+   a missing key for another model is reported when you switch.
+
+3. Copy [`examples/assistant.toml`](examples/assistant.toml) to
+   `~/.config/assistant/assistant.toml`. Set `allowed_user_ids`, `timezone` and the vps server's
+   `command`.
+4. Check and install:
+
+   ```bash
+   uv run assistant check
+   uv run assistant service install
+   ```
+
+   Status is `assistant service status`; logs are in `~/.local/state/assistant/logs/`.
+
+**Using it.** Write to the bot. Only your account gets answers: messages from anyone else are
+dropped before any model or tool call, and audited.
+
+| Command | What it does |
+|---|---|
+| any text | Ask or instruct. It uses read-only tools directly and asks before anything else |
+| `/new` · `/done` | Start fresh / end the conversation, and get memory proposals to Save or Discard |
+| `/status` · `/usage` | Servers, schedules, pending approvals, heartbeat · today's tokens, calls and cost |
+| `/schedules` · `/schedule add <name> <daily HH:MM\|weekdays HH:MM\|every Nh> <prompt>` | Recurring prompts, e.g. a morning briefing; also `pause` / `resume` / `remove` |
+| `/stop` · `/resume` | Kill switch: cancels running work and voids approvals; nothing runs until `/resume` |
+| `/forget` | Delete stored conversation history (memory is not affected) |
+| `/model [name]` | List the models (with switch buttons) or switch to one |
+
+**Approvals.** Each tool has a policy: `auto`, `ask` or `never`. By default read-only tools are
+`auto` and everything else is `ask`; tools that aren't allowlisted are never offered to the
+model. For an `ask` tool you get a message showing the tool, its arguments and the tool's own
+preview (vps-mcp's `confirm=false` plan), with **Approve / Reject** buttons.
+
+- An approval is bound to that exact call, works once, and expires (10 min by default).
+- Buttons are signed with a key that changes on every restart, so old or forged buttons do nothing.
+- Scheduled runs **always** ask before a state-changing action, whatever the policy.
+
+**Memory.** Every turn includes agent-memory's pinned core, and the model can search and read
+memories. It **cannot** write them. At the end of a conversation (`/done`, or 30 minutes idle) it
+proposes up to 5 memories, and only the ones you tap **Save** on are stored, through
+agent-memory's normal write policy (secrets refused, duplicates merged, conflicts flagged).
+
+**Limits and audit.**
+
+- Per-turn and per-day caps on model calls, tool calls, tokens and estimated cost stop runaway
+  loops, and the message says which limit was hit.
+- Every model call, tool call, approval, refusal, schedule run and command is audited (no message
+  text or tool output): `assistant audit --since 1d`.
+
+**Privacy.**
+
+- The model provider sees your conversation and the tool results it is given. With a local
+  model, nothing leaves the laptop except Telegram messages.
+- Secrets never leave the Keychain except to authenticate. Anything outgoing to Telegram is
+  scrubbed of known secrets, including text the model writes.
+- Tool output and memory are given to the model as labelled, untrusted data. An instruction
+  hidden in them can't bypass the policy or an approval, and the approval message always shows
+  the real call.
+
 ## Security model
 
 1. **No arbitrary commands.** Every remote command is a fixed template, and every input is
@@ -698,6 +795,9 @@ src/vps_mcp/
 ├── jobs/                # declared jobs: integrity, params, launcher, progress, guard, report
 ├── memory/              # adapter onto agent-memory: generated facts, tool registration
 └── gitlab/              # GitLab: Keychain token, client, access, read/items/ci, archive, deploy
+src/assistant/           # personal assistant: config, secrets, state, telegram, providers,
+                         #   toolhub (policy + previews), approvals, memory, budget, agent loop,
+                         #   scheduler, commands, app, service, cli
 src/agent_memory/        # standalone memory: model, files, index (FTS5), policy, ranking, store,
                          #   pinned core, MCP tools/server, CLI, migrate-004, bench
 specs/                   # speckit spec, plan, research, contracts, tasks per feature

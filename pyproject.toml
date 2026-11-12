@@ -9,11 +9,13 @@ dependencies = [
     "asyncssh>=2.14",
     "pydantic>=2.6",
     "httpx2>=2.10.0",
+    "anthropic>=0.40",
 ]
 
 [project.scripts]
 vps-mcp = "vps_mcp.cli:main"
 agent-memory = "agent_memory.cli:main"
+assistant = "assistant.cli:main"
 
 [dependency-groups]
 dev = [
@@ -28,7 +30,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vps_mcp", "src/agent_memory"]
+packages = ["src/vps_mcp", "src/agent_memory", "src/assistant"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -62,5 +64,5 @@ ignore = ["S101", "S603", "S108", "E501", "ASYNC109"]
 
 [tool.mypy]
 strict = true
-files = ["src/vps_mcp", "src/agent_memory"]
+files = ["src/vps_mcp", "src/agent_memory", "src/assistant"]
 plugins = ["pydantic.mypy"]
