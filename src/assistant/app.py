@@ -632,14 +632,16 @@ class Assistant:
                     str(args.get("replacement", "")),
                 )
             elif tool_op == "list":
-                res = files.files_list(
+                res = await asyncio.to_thread(
+                    files.files_list,
                     str(args.get("path", "~")),
                     int(args.get("max_depth", 1) or 1),
                     str(args.get("pattern", "*") or "*"),
                     bool(args.get("include_hidden", False)),
                 )
             elif tool_op == "search":
-                res = files.files_search(
+                res = await asyncio.to_thread(
+                    files.files_search,
                     str(args.get("path", "~")),
                     str(args.get("query", "")),
                     str(args.get("pattern", "*") or "*"),

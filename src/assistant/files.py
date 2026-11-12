@@ -21,6 +21,50 @@ IGNORED_DIRS = {
     ".pytest_cache",
     ".DS_Store",
     ".Trash",
+    "Library",
+    "miniforge3",
+    "miniconda3",
+    "anaconda3",
+    "Dropbox",
+    "Applications",
+    "Music",
+    "Movies",
+    "Pictures",
+}
+SKIP_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".ico",
+    ".webp",
+    ".svg",
+    ".pdf",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".7z",
+    ".dmg",
+    ".pkg",
+    ".dylib",
+    ".so",
+    ".a",
+    ".o",
+    ".pyc",
+    ".pyd",
+    ".sqlite",
+    ".db",
+    ".bin",
+    ".dat",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+    ".mp3",
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".wav",
 }
 
 
@@ -215,6 +259,7 @@ def files_search(
     query: str = "",
     pattern: str = "*",
     max_results: int = 25,
+    max_depth: int = 3,
 ) -> dict[str, Any]:
     """Search for files by name glob and/or search inside files for text content."""
     try:
@@ -226,13 +271,24 @@ def files_search(
         matches: list[dict[str, Any]] = []
 
         query_lower = query.lower() if query else ""
+        scanned = 0
+        max_scanned = 1500
 
         for root, dirs, files in os.walk(base):
+            # Limit depth
+            try:
+                rel_parts = Path(root).relative_to(base).parts
+                if len(rel_parts) >= max_depth:
+                    dirs.clear()
+            except ValueError:
+                pass
+
             # Prune ignored dirs in-place
             dirs[:] = [d for d in dirs if not d.startswith(".") and d not in IGNORED_DIRS]
 
             for fname in files:
-                if len(matches) >= limit:
+                scanned += 1
+                if scanned >= max_scanned or len(matches) >= limit:
                     break
                 if fname.startswith("."):
                     continue
@@ -240,13 +296,19 @@ def files_search(
                     continue
 
                 fpath = Path(root) / fname
+                ext = fpath.suffix.lower()
+                if ext in SKIP_EXTENSIONS:
+                    if not query_lower:
+                        matches.append({"path": str(fpath), "type": "filename_match"})
+                    continue
+
                 if not query_lower:
                     matches.append({"path": str(fpath), "type": "filename_match"})
                     continue
 
                 # Search within content
                 try:
-                    if fpath.stat().st_size > 5 * 1024 * 1024:  # skip files >5MB for grepping
+                    if fpath.stat().st_size > 2 * 1024 * 1024:  # skip files >2MB for grepping
                         continue
                     text = fpath.read_text(encoding="utf-8", errors="ignore")
                     for line_idx, line in enumerate(text.splitlines(), start=1):
@@ -263,7 +325,7 @@ def files_search(
                 except (OSError, UnicodeDecodeError):
                     continue
 
-            if len(matches) >= limit:
+            if scanned >= max_scanned or len(matches) >= limit:
                 break
 
         return {
@@ -272,6 +334,7 @@ def files_search(
             "pattern": pattern,
             "query": query,
             "count": len(matches),
+            "scanned": scanned,
             "matches": matches,
         }
     except Exception as exc:  # noqa: BLE001

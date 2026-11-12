@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import re
 from typing import TYPE_CHECKING
@@ -254,7 +255,7 @@ async def model(a: Assistant, chat_id: int, rest: str) -> None:
 
 async def ls(a: Assistant, chat_id: int, rest: str) -> None:
     path = rest.strip() or "~"
-    res = files.files_list(path, max_depth=1)
+    res = await asyncio.to_thread(files.files_list, path, max_depth=1)
     if not res.get("ok"):
         await a.channel.send(chat_id, f"⚠️ Error: {res.get('error', 'failed to list directory')}")
         return
@@ -277,7 +278,7 @@ async def cat(a: Assistant, chat_id: int, rest: str) -> None:
     if not path:
         await a.channel.send(chat_id, "Usage: `/cat <path>` (e.g. `/cat ~/notes.txt`)")
         return
-    res = files.files_read(path, start_line=1, end_line=60)
+    res = await asyncio.to_thread(files.files_read, path, 1, 60)
     if not res.get("ok"):
         await a.channel.send(chat_id, f"⚠️ Error: {res.get('error', 'failed to read file')}")
         return
