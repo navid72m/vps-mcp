@@ -663,6 +663,7 @@ dropped before any model or tool call, and audited.
 | `/tools` | Core tools, toolsets, which are loaded now, and the size of the tool list |
 | `/me` · `/me all` · `/me export` | What it knows about you, with edit/remove buttons · including sensitive facts · as a file |
 | `/interview` | Getting-to-know-you questions; `/interview stop`, `/interview sensitive on` |
+| a photo, document or link | Looks at it and answers (see *Web, photos and documents*) |
 
 **Approvals.** Each tool has a policy: `auto`, `ask` or `never`. By default read-only tools are
 `auto` and everything else is `ask`; tools that aren't allowlisted are never offered to the
@@ -716,6 +717,26 @@ config (`core = [...]`, `[server.toolsets.<name>]`, see the example). `[tools] l
 sends everything as before, and `lazy_tools` on a model overrides it for that model, so a big
 hosted model can get every tool while a local one stays lean. `assistant check` prints the size
 with and without lazy loading.
+
+**Web, photos and documents.**
+
+- **Web search and pages.** It can search the web (Brave Search) and read pages or PDF links,
+  and answers with the source links. Send it a link and it reads it. Store a free Brave Search
+  API key once: `security add-generic-password -U -s vps-mcp-assistant -a brave_api_key -w`.
+  Without a key, reading links still works. It refuses links to `localhost`, your home network
+  or cloud metadata addresses, including through redirects, so a page can't make it probe your
+  network.
+- **Photos and screenshots.** Send one, with or without a question; several photos sent
+  together are one question. The image goes to the model once; later messages only see
+  "[photo]". If the current model can't see images (`vision = false` in its config), it says
+  so and names one that can.
+- **Documents.** PDFs (with a text layer), Word `.docx` and text files are read and answered
+  about ("what does this letter want from me, and by when?"). Scanned PDFs aren't read yet —
+  send photos of the pages instead. Files over 20 MB can't be downloaded by bots.
+- Everything from the web, a photo or a document is untrusted data: instructions inside it are
+  never followed, and only your caption counts as your words for "remember".
+- Privacy: search queries go to Brave, pages are fetched from your laptop's IP, and photos and
+  documents go to the model provider.
 
 **Limits and audit.**
 

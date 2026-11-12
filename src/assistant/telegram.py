@@ -6,7 +6,7 @@ import asyncio
 import logging
 import random
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +14,7 @@ from typing import Any
 import httpx2
 
 from assistant.format import plain, to_html
+from assistant.media import MAX_DOWNLOAD, Attachment, pick_photo
 from assistant.state import State
 from vps_mcp.remote.redact import install_redaction, register_secret, scrub
 
@@ -28,6 +29,7 @@ class Message:
     user_id: int
     text: str
     date: datetime
+    attachments: list[Attachment] = field(default_factory=list)  # photo / document (010)
 
 
 @dataclass
@@ -141,10 +143,40 @@ class TelegramChannel:
                 )
                 return None
             text = m.get("text")
+            atts: list[Attachment] = []
+            if isinstance(m.get("photo"), list) and m["photo"]:
+                best = pick_photo(m["photo"])
+                if best:
+                    atts.append(
+                        Attachment(
+                            "photo",
+                            str(best["file_id"]),
+                            "photo.jpg",
+                            "image/jpeg",
+                            int(best.get("file_size", 0)),
+                        )
+                    )
+            elif isinstance(m.get("document"), dict):
+                d = m["document"]
+                atts.append(
+                    Attachment(
+                        "document",
+                        str(d["file_id"]),
+                        str(d.get("file_name") or "file"),
+                        str(d.get("mime_type") or ""),
+                        int(d.get("file_size", 0)),
+                    )
+                )
+            if atts:
+                text = m.get("caption") or ""
             if not isinstance(text, str):
                 return None
             return Message(
-                int(chat["id"]), uid, text, datetime.fromtimestamp(int(m.get("date", 0)), UTC)
+                int(chat["id"]),
+                uid,
+                text,
+                datetime.fromtimestamp(int(m.get("date", 0)), UTC),
+                atts,
             )
         if "callback_query" in upd:
             q = upd["callback_query"]
@@ -284,6 +316,21 @@ class TelegramChannel:
             )
         except (httpx2.HTTPError, RuntimeError) as exc:
             log.info("edit failed: %s", exc.__class__.__name__)
+
+    async def download(self, file_id: str, limit: int = MAX_DOWNLOAD) -> bytes:
+        """A file the operator sent (Bot API getFile; bots may download up to 20 MB)."""
+        info = await self._call("getFile", file_id=file_id)
+        path = str((info or {}).get("file_path") or "")
+        if not path:
+            raise RuntimeError("telegram returned no file path")
+        if int((info or {}).get("file_size") or 0) > limit:
+            raise ValueError("file too large")
+        resp = await self._http.get(f"{API}/file/bot{self._token}/{path}")
+        if resp.status_code >= 400:
+            raise RuntimeError(f"telegram file download failed: HTTP {resp.status_code}")
+        if len(resp.content) > limit:
+            raise ValueError("file too large")
+        return bytes(resp.content)
 
     async def answer_callback(self, callback_id: str, text: str = "") -> None:
         try:

@@ -10,6 +10,7 @@ from typing import Any
 import httpx2
 
 from assistant.providers import (
+    ImageBlock,
     Msg,
     ProviderError,
     Reply,
@@ -45,7 +46,18 @@ def to_api(system: str, messages: list[Msg]) -> list[dict[str, Any]]:
         for r in results:
             content = f"ERROR: {r.content}" if r.is_error else r.content
             out.append({"role": "tool", "tool_call_id": r.tool_use_id, "content": content})
-        if text:
+        images = [b for b in m.content if isinstance(b, ImageBlock)]
+        if images:  # text and images in one user message (OpenAI content parts)
+            parts: list[dict[str, Any]] = [{"type": "text", "text": text}] if text else []
+            parts += [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{b.media_type};base64,{b.data}"},
+                }
+                for b in images
+            ]
+            out.append({"role": "user", "content": parts})
+        elif text:
             out.append({"role": "user", "content": text})
     return out
 

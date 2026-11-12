@@ -14,7 +14,15 @@ from assistant.config import Config, ToolsetSection
 from assistant.providers import ToolSpec
 
 BUILTIN = "builtin"
-BUILTIN_PREFIXES = ("memory__", "schedule__", "files__", "assistant__", "tools__", "me__")
+BUILTIN_PREFIXES = (
+    "memory__",
+    "schedule__",
+    "files__",
+    "assistant__",
+    "tools__",
+    "me__",
+    "web__",
+)
 BUILTIN_CORE = (
     "memory__search",
     "memory__get",
@@ -31,6 +39,29 @@ BUILTIN_SETS: dict[str, ToolsetSection] = {
         tools=["files__*"],
         description="read, write, edit, search, list, delete and send files on this laptop",
         keywords=["file", "folder", "directory", "document", "pdf", "path", "disk", "laptop"],
+    ),
+    "web": ToolsetSection(
+        tools=["web__*"],
+        description="search the web and read web pages or PDF links",
+        keywords=[
+            "search",
+            "google",
+            "look up",
+            "web",
+            "internet",
+            "website",
+            "online",
+            "news",
+            "latest",
+            "price",
+            "review",
+            "link",
+            "http",
+            "https",
+            "www",
+            "wikipedia",
+            "opening hours",
+        ],  # fmt: skip
     ),
     "schedules": ToolsetSection(
         tools=["schedule__remove", "schedule__pause", "schedule__resume"],

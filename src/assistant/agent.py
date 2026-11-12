@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import zoneinfo
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -15,6 +16,7 @@ from assistant.clock import Clock
 from assistant.config import Config
 from assistant.memory import AssistantMemory, ProposalError
 from assistant.providers import (
+    ImageBlock,
     Msg,
     Provider,
     ProviderError,
@@ -64,6 +66,7 @@ class TurnResult:
 
 
 PREFETCH_MAX_CHARS = 1500
+URL_RE = re.compile(r"https?://\S+|\bwww\.\S+", re.IGNORECASE)
 Notify = Callable[[], Awaitable[None]]
 # built-in (non-MCP) tool: (name, args, chat_id, conversation, origin) -> (content, is_error)
 Builtin = Callable[[str, dict[str, Any], int, str, str], Awaitable[tuple[str, bool]]]
@@ -166,6 +169,8 @@ class Agent:
         # a long paste is content, not a request: its many words would match toolsets at random
         long_paste = len(text) > PREFETCH_MAX_CHARS
         picked = [] if long_paste else cat.prefetch(text, [], lim.threshold, lim.max_auto)
+        if "web" in cat.sets and URL_RE.search(text) and "web" not in {p[0] for p in picked}:
+            picked.append(("web", 99.0, ["link"]))  # a link always brings the web tools
         for name, _, words in picked:
             self.state.toolset_load(conversation, name, turn, f"auto: {', '.join(words)}")
             if name not in active:
@@ -252,7 +257,12 @@ class Agent:
         origin: str,
         chat_id: int,
         on_progress: Notify | None = None,
+        images: list[ImageBlock] | None = None,
+        attached: str = "",
+        note: str = "",
     ) -> TurnResult:
+        """One turn. `images` and `attached` (documents) are for this call only; history keeps
+        `note` ("[photo]", "[file: x.pdf]") with the operator's text (feature 010)."""
         self.budget.new_turn()
         self.turn_text = text if origin == "chat" else ""
         turn = self.state.operator_turn(conversation, advance=True)
@@ -261,7 +271,12 @@ class Agent:
         conv = self.state.conversation_get(conversation) or {}
         system = self.system_prompt()
         ctx = self.context(conv.get("summary", ""))
-        messages = [*self.history(conversation), Msg("user", [TextBlock(ctx + text)])]
+        body = ctx + (text or "(no text; see the attachment)")
+        if attached:
+            body += "\n\n" + attached
+        first: list[TextBlock | ImageBlock | ToolUse | ToolResult] = [TextBlock(body)]
+        first += list(images or [])
+        messages = [*self.history(conversation), Msg("user", first)]
         used: list[str] = []
         result = TurnResult("")
         while True:
@@ -309,7 +324,7 @@ class Agent:
                 result = TurnResult(reply.text or "(no answer)", used)
                 break
             messages.append(Msg("assistant", list(reply.blocks)))
-            results: list[TextBlock | ToolUse | ToolResult] = []
+            results: list[TextBlock | ImageBlock | ToolUse | ToolResult] = []
             for call in calls:
                 if on_progress is not None:
                     await on_progress()
@@ -320,7 +335,7 @@ class Agent:
                 results.append(ToolResult(call.id, content, is_err))
             messages.append(Msg("user", results))
         ts = self.clock.wall().isoformat(timespec="seconds")
-        self.state.add_turn(conversation, ts, "user", text)
+        self.state.add_turn(conversation, ts, "user", f"{note} {text}".strip() if note else text)
         self.state.add_turn(conversation, ts, "assistant", result.text, "; ".join(used)[:1000])
         self.state.conversation_touch(conversation, ts)
         self.fold(conversation)

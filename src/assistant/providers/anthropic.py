@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from assistant.providers import (
+    ImageBlock,
     Msg,
     ProviderError,
     Reply,
@@ -23,6 +24,13 @@ def to_api(messages: list[Msg]) -> list[dict[str, Any]]:
             if isinstance(b, TextBlock):
                 if b.text:
                     blocks.append({"type": "text", "text": b.text})
+            elif isinstance(b, ImageBlock):
+                blocks.append(
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": b.media_type, "data": b.data},
+                    }
+                )
             elif isinstance(b, ToolUse):
                 blocks.append({"type": "tool_use", "id": b.id, "name": b.name, "input": b.input})
             elif isinstance(b, ToolResult):

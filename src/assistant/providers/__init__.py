@@ -12,6 +12,14 @@ class TextBlock:
 
 
 @dataclass
+class ImageBlock:
+    """An image the operator sent, for this turn only (feature 010)."""
+
+    media_type: str  # image/jpeg, image/png, image/webp, image/gif
+    data: str  # base64
+
+
+@dataclass
 class ToolUse:
     id: str
     name: str
@@ -28,7 +36,7 @@ class ToolResult:
 @dataclass
 class Msg:
     role: str  # "user" | "assistant"
-    content: list[TextBlock | ToolUse | ToolResult]
+    content: list[TextBlock | ImageBlock | ToolUse | ToolResult]
 
 
 @dataclass

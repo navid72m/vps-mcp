@@ -57,6 +57,7 @@ class FakeTelegram:
     calls: list[str] = field(default_factory=list)
     fail: int = 0
     reject_html: bool = False
+    files: dict[str, bytes] = field(default_factory=dict)  # file_id -> content (feature 010)
     next_id: int = 100
 
     @property
@@ -64,6 +65,10 @@ class FakeTelegram:
         return httpx2.MockTransport(self.handle)
 
     def handle(self, request: httpx2.Request) -> httpx2.Response:
+        f = re.match(r"^/file/bot[^/]+/(.+)$", request.url.path)
+        if f:
+            data = self.files.get(f.group(1))
+            return httpx2.Response(200, content=data) if data is not None else httpx2.Response(404)
         m = re.match(r"^/bot([^/]+)/(\w+)$", request.url.path)
         assert m, request.url.path
         method = m.group(2)
@@ -81,6 +86,14 @@ class FakeTelegram:
         if method == "getUpdates":
             batch, self.updates = self.updates, []
             return httpx2.Response(200, json={"ok": True, "result": batch})
+        if method == "getFile":
+            fid = str(body.get("file_id"))
+            if fid not in self.files:
+                return httpx2.Response(400, json={"ok": False, "description": "file not found"})
+            return httpx2.Response(
+                200,
+                json={"ok": True, "result": {"file_path": fid, "file_size": len(self.files[fid])}},
+            )
         if method == "sendMessage" and self.reject_html and body.get("parse_mode"):
             return httpx2.Response(
                 400, json={"ok": False, "description": "Bad Request: can't parse entities"}

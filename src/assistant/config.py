@@ -89,6 +89,7 @@ class ModelSection(_Strict):
     timeout_s: float = Field(default=300.0, gt=0, le=1800)
     # another profile to try once when this one errors or times out (e.g. a busy free model)
     fallback: str = ""
+    vision: bool = True  # can see images (photos are refused politely when false)
     # lazy tool loading for this model; unset = [tools] lazy. Big, fast models can take every
     # tool on every call (false); small or local ones answer faster with fewer (true).
     lazy_tools: bool | None = None
@@ -164,6 +165,14 @@ class ToolsSection(_Strict):
     threshold: float = Field(default=2.0, gt=0)  # prefetch score needed
 
 
+class WebSection(_Strict):
+    enabled: bool = True
+    search_key_secret: str = Field(default="brave_api_key", pattern=r"^[a-z0-9_]{1,64}$")
+    max_results: int = Field(default=5, ge=1, le=10)
+    read_chars: int = Field(default=12000, ge=1000, le=50000)
+    timeout_s: float = Field(default=20.0, gt=0, le=120)
+
+
 class ServerSection(_Strict):
     name: str
     command: list[str] = Field(default_factory=list)
@@ -205,6 +214,7 @@ class Config(_Strict):
     models: dict[str, ModelSection] = Field(default_factory=dict, max_length=10)  # switchable
     limits: Limits = Field(default_factory=Limits)
     tools: ToolsSection = Field(default_factory=ToolsSection)
+    web: WebSection = Field(default_factory=WebSection)
     memory: MemorySection = Field(default_factory=MemorySection)
     server: list[ServerSection] = Field(default_factory=list, max_length=20)
     schedule: list[ScheduleSection] = Field(default_factory=list, max_length=50)

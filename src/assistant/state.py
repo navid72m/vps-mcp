@@ -65,6 +65,8 @@ AUDIT_KINDS = (
     "memory_save",
     "system",
     "toolset",
+    "web",
+    "media",
 )
 
 

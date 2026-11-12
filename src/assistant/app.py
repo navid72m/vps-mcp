@@ -15,15 +15,17 @@ import zoneinfo
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
-from assistant import commands, files, knowme, knowme_runtime
+from assistant import commands, files, knowme, knowme_runtime, media, web
 from assistant.agent import Agent
 from assistant.approvals import Approvals, Signer
 from assistant.budget import Budget, BudgetExceeded
 from assistant.clock import Clock, RealClock
 from assistant.config import Config
+from assistant.media import Attachment
 from assistant.memory import AssistantMemory
-from assistant.providers import Provider, ToolSpec
+from assistant.providers import ImageBlock, Provider, ToolSpec
 from assistant.providers.router import ModelRouter
 from assistant.scheduler import Cadence, SleepDetector
 from assistant.secrets import SecretMissing
@@ -124,6 +126,10 @@ class Assistant:
         specs = self.schedule_specs()
         specs.extend(self.files_specs())
         specs.extend(knowme.SPECS)
+        if config.web.enabled:
+            specs.extend(web.specs())
+        self.web_transport: Any = None  # tests inject a mock transport
+        self.web_resolver: web.Resolver = web.default_resolver
         if self.router is not None:
             self.budget.prices = self.router.profile.prices
             if len(self.router.profiles) > 1:
@@ -133,6 +139,7 @@ class Assistant:
         self.owner_chat = config.telegram.allowed_user_ids[0]
         self.turns: dict[int, asyncio.Task[Any]] = {}
         self.pending: dict[int, list[str]] = {}  # messages waiting for the next turn, per chat
+        self.pending_files: dict[int, list[Attachment]] = {}  # their photos and documents
         # facts mentioned without a request to remember: offered at the end of the conversation
         self.pending_suggestions: dict[str, list[dict[str, Any]]] = {}
         self.coalesce_s = coalesce_s
@@ -234,9 +241,12 @@ class Assistant:
         chat = update.chat_id
         waiting = self.pending.get(chat)
         if waiting is not None:  # a turn is already queued: this message joins it
-            waiting.append(text)
+            if text:
+                waiting.append(text)
+            self.pending_files.setdefault(chat, []).extend(update.attachments)
             return
-        self.pending[chat] = [text]
+        self.pending[chat] = [text] if text else []
+        self.pending_files[chat] = list(update.attachments)
         running = self.turns.get(chat)
         if running is not None and not running.done():
             await self.channel.send(
@@ -252,8 +262,9 @@ class Assistant:
             # a long paste arrives as several messages within a second or two: one turn for all
             await asyncio.sleep(self.coalesce_s)
             texts = self.pending.pop(chat, [])
-            if texts and not self.paused:
-                await self.chat_turn(chat, "\n\n".join(texts), "chat")
+            files = self.pending_files.pop(chat, [])
+            if (texts or files) and not self.paused:
+                await self.chat_turn(chat, "\n\n".join(texts), "chat", attachments=files)
 
         # never block the dispatcher: approvals arrive through it while a turn waits
         self.turns[chat] = asyncio.create_task(after(running))
@@ -265,10 +276,24 @@ class Assistant:
         return str(conv["id"])
 
     async def chat_turn(
-        self, chat_id: int, text: str, origin: str, conversation: str | None = None
+        self,
+        chat_id: int,
+        text: str,
+        origin: str,
+        conversation: str | None = None,
+        attachments: list[Attachment] | None = None,
     ) -> str:
         cid = conversation or self.conversation(chat_id)
         await self.channel.typing(chat_id)
+        images: list[ImageBlock] = []
+        attached = ""
+        note = ""
+        if attachments:
+            images, attached, note, problem = await self.receive_files(chat_id, attachments)
+            if problem:
+                await self.channel.send(chat_id, problem)
+            if not images and not attached and not text:
+                return ""
 
         async def progress() -> None:
             await self.channel.typing(chat_id)
@@ -280,7 +305,14 @@ class Assistant:
             return ""
         try:
             result = await self.agent.run_turn(
-                cid, text, origin=origin, chat_id=chat_id, on_progress=progress
+                cid,
+                text,
+                origin=origin,
+                chat_id=chat_id,
+                on_progress=progress,
+                images=images,
+                attached=attached,
+                note=note,
             )
         except asyncio.CancelledError:
             with contextlib.suppress(Exception):
@@ -557,6 +589,8 @@ class Assistant:
     ) -> tuple[str, bool]:
         if name.startswith("me__"):
             return await knowme_runtime.call(self, name, args, chat_id, conversation, origin)
+        if name.startswith("web__"):
+            return await self.web_tool(name, args)
         if name == "assistant__switch_model":
             if self.router is None:
                 return "no router configured", True
@@ -820,6 +854,121 @@ class Assistant:
             await self.channel.edit(cb.chat_id, cb.message_id, f"🧹 Forgot {n} conversation(s).")
         else:
             await self.channel.answer_callback(cb.id, "unknown")
+
+    # ------------------------------------------------------------ media (feature 010)
+
+    def vision_ok(self) -> tuple[bool, str]:
+        """Whether the current model sees images; else the first profile that does."""
+        if self.router is None:
+            return self.config.model.vision, ""
+        if self.router.profile.vision:
+            return True, ""
+        other = next((a for a, m in self.router.profiles.items() if m.vision), "")
+        return False, other
+
+    async def receive_files(
+        self, chat_id: int, files_in: list[Attachment]
+    ) -> tuple[list[ImageBlock], str, str, str]:
+        """(images, document blocks for the model, note for history, problem to tell)."""
+        images: list[ImageBlock] = []
+        blocks: list[str] = []
+        notes: list[str] = []
+        problems: list[str] = []
+        for f in files_in:
+            label = "photo" if f.is_image else f"document {f.mime or f.name}"
+            if f.size > media.MAX_DOWNLOAD:
+                problems.append(
+                    f"{f.name} is too large for me (Telegram lets bots download up to 20 MB)."
+                )
+                self.state.audit("media", target=label, outcome="refused: too large")
+                continue
+            if f.is_image:
+                ok, other = self.vision_ok()
+                if not ok:
+                    cur = self.router.current if self.router else "current"
+                    hint = f" /model {other} can." if other else ""
+                    problems.append(f"My current model ({cur}) can't see images.{hint}")
+                    self.state.audit("media", target=label, outcome="refused: no vision")
+                    continue
+            try:
+                data = await self.channel.download(f.file_id)
+            except Exception as exc:  # noqa: BLE001 - network or size
+                problems.append(f"I couldn't download {f.name}.")
+                self.state.audit("media", target=label, outcome=f"failed: {exc.__class__.__name__}")
+                continue
+            if f.is_image:
+                images.append(ImageBlock(media.image_type(data, f.mime), media.b64(data)))
+                notes.append("[photo]")
+                self.state.audit("media", target=label, outcome=f"ok {len(data)} bytes")
+                continue
+            text, pages, cut, problem = media.document_text(f.name, f.mime, data)
+            if problem:
+                problems.append(problem)
+                self.state.audit("media", target=label, outcome=f"refused: {problem}"[:200])
+                continue
+            blocks.append(media.document_block(f.name, f.mime, text, pages, cut))
+            notes.append(f"[file: {f.name}]")
+            self.state.audit("media", target=label, outcome=f"ok {len(text)} chars")
+        return images, "\n\n".join(blocks), " ".join(notes), " ".join(problems)
+
+    async def web_tool(self, name: str, args: dict[str, Any]) -> tuple[str, bool]:
+        """web__search / web__read as built-ins; results are untrusted data (FR-004)."""
+
+        def envelope(content: Any, ok: bool = True) -> tuple[str, bool]:
+            return json.dumps(
+                {"kind": "tool_output", "server": "web", "untrusted": True, "content": content},
+                ensure_ascii=False,
+            ), not ok
+
+        cfg = self.config.web
+        try:
+            if name == "web__search":
+                key = self.secret(cfg.search_key_secret)
+                if not key:
+                    msg = (
+                        "web search is not set up: the operator needs a Brave Search API key, "
+                        "stored with: security add-generic-password -U -s "
+                        f"{self.config.secrets.service} -a {cfg.search_key_secret} -w"
+                    )
+                    self.state.audit("web", target="search", outcome="not set up")
+                    return envelope({"error": msg}, ok=False)
+                res = await web.search(
+                    str(args.get("query", "")),
+                    key=key,
+                    count=int(args.get("count") or cfg.max_results),
+                    timeout=cfg.timeout_s,
+                    transport=self.web_transport,
+                )
+                self.state.audit("web", target="search", outcome=f"ok {len(res)} results")
+                return envelope({"results": res})
+            if name == "web__read":
+                page = await web.read(
+                    str(args.get("url", "")),
+                    max_chars=cfg.read_chars,
+                    timeout=cfg.timeout_s,
+                    resolver=self.web_resolver,
+                    transport=self.web_transport,
+                )
+                host = urlsplit(page["final_url"]).hostname or "?"
+                self.state.audit(
+                    "web", target=f"read {host}", outcome=f"ok {len(page['text'])} chars"
+                )
+                return envelope(page)
+        except web.WebError as exc:
+            self.state.audit("web", target=name.removeprefix("web__"), outcome=str(exc)[:200])
+            return envelope({"error": str(exc)}, ok=False)
+        return envelope({"error": f"unknown tool {name}"}, ok=False)
+
+    def secret(self, name: str) -> str:
+        from assistant.secrets import SecretMissing, provider_for
+
+        try:
+            prov = provider_for(
+                self.config.secrets.provider, self.config.secrets.service, self.config.secrets.file
+            )
+            return prov.get(name)
+        except SecretMissing:
+            return ""
 
     def fresh_proposals(self, props: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Drop proposals that repeat a known fact or each other (feature 009, R6)."""
