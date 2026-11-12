@@ -40,7 +40,19 @@ BUILTIN_SETS: dict[str, ToolsetSection] = {
     "files": ToolsetSection(
         tools=["files__*"],
         description="read, write, edit, search, list, delete and send files on this laptop",
-        keywords=["file", "folder", "directory", "document", "pdf", "path", "disk", "laptop"],
+        keywords=[
+            "file",
+            "folder",
+            "directory",
+            "document",
+            "pdf",
+            "path",
+            "disk",
+            "laptop",
+            "فایل",
+            "پوشه",
+            "اسناد",
+        ],
     ),
     "web": ToolsetSection(
         tools=["web__*"],
@@ -63,6 +75,10 @@ BUILTIN_SETS: dict[str, ToolsetSection] = {
             "www",
             "wikipedia",
             "opening hours",
+            "جستجو",
+            "سرچ",
+            "اینترنت",
+            "وب",
         ],  # fmt: skip
     ),
     "schedules": ToolsetSection(
@@ -85,6 +101,12 @@ BUILTIN_SETS: dict[str, ToolsetSection] = {
             "call",
             "sync",
             "booking",
+            "تقویم",
+            "جلسه",
+            "جلسات",
+            "قرار",
+            "رویداد",
+            "برنامه",
         ],
     ),
     "email": ToolsetSection(
@@ -100,6 +122,16 @@ BUILTIN_SETS: dict[str, ToolsetSection] = {
             "draft",
             "reply to",
             "message from",
+            "ایمیل",
+            "ایمیلام",
+            "ایمیلم",
+            "ایمیل‌ها",
+            "ایمیل‌هایم",
+            "جیمیل",
+            "نامه",
+            "نامه‌ها",
+            "پیام",
+            "پیام‌ها",
         ],
     ),
 }
@@ -109,7 +141,7 @@ EXTRA_STOP = frozenset(
     # generic words in tool names: they say nothing about which toolset is meant
     "status list info overview item items detail details service services".split()
 )
-_TOKEN = re.compile(r"[a-z0-9]+")
+_TOKEN = re.compile(r"[\w]+", re.UNICODE)
 
 LOAD_SPEC = ToolSpec(
     "tools__load",
@@ -140,7 +172,7 @@ def _related(a: str, b: str) -> bool:
     if a == b:
         return True
     short, long_ = (a, b) if len(a) <= len(b) else (b, a)
-    return len(short) >= 5 and long_.startswith(short)
+    return len(short) >= 4 and long_.startswith(short)
 
 
 @dataclass

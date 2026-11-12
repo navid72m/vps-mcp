@@ -52,7 +52,9 @@ async def test_slow_response_shows_spinner_and_deletes_on_completion(tmp_path: P
     # The spinner message was edited with updated progress/elapsed time
     assert len(h.tg.edited) >= 1
     # Check that edited text contained spinner or status
-    assert any("schedule__add" in e.get("text", "") or "Thinking" in e.get("text", "") for e in h.tg.edited)
+    assert any(
+        "schedule__add" in e.get("text", "") or "Thinking" in e.get("text", "") for e in h.tg.edited
+    )
     # The temporary placeholder message was deleted
     assert len(h.tg.deleted) >= 1
     # Final message is intact
