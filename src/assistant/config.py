@@ -82,6 +82,8 @@ class ModelSection(_Strict):
     # Keychain/file entry holding the API key; "" = no key (local servers)
     api_key_secret: str | None = Field(default=None, pattern=r"^[a-z0-9_]{0,64}$")
     timeout_s: float = Field(default=300.0, gt=0, le=1800)
+    # another profile to try once when this one errors or times out (e.g. a busy free model)
+    fallback: str = ""
     # "openai" only: sent as reasoning_effort; "none" turns off thinking (faster local models)
     reasoning_effort: Literal["", "none", "minimal", "low", "medium", "high"] = ""
     max_tokens: int = Field(default=2048, ge=64, le=64000)
@@ -192,6 +194,9 @@ class Config(_Strict):
                 raise ValueError(f"models.{key}: alias must be '{key}' (or left out)")
         if self.model.alias in self.models:
             raise ValueError(f"model alias '{self.model.alias}' is also defined under [models]")
+        for alias, m in self.profiles.items():
+            if m.fallback and (m.fallback == alias or m.fallback not in self.profiles):
+                raise ValueError(f"model '{alias}': fallback '{m.fallback}' is not another model")
         return self
 
     @property

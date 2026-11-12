@@ -150,6 +150,7 @@ async def schedule(a: Assistant, chat_id: int, rest: str) -> None:
 
 async def stop(a: Assistant, chat_id: int, rest: str) -> None:
     a.state.kv_set("paused", "1")
+    a.pending.clear()
     voided = a.approvals.void_all()
     cancelled = 0
     for task in list(a.turns.values()) + list(a.background):

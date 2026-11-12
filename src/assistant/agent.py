@@ -159,6 +159,7 @@ class Agent:
             except BudgetExceeded as exc:
                 result = TurnResult(f"⛔ {exc}. Stopping here.", used, "budget")
                 break
+            t0 = self.clock.mono()
             try:
                 reply = await self.provider.complete(
                     system=system,
@@ -171,7 +172,7 @@ class Agent:
                     "model_call",
                     conversation=conversation,
                     origin=origin,
-                    outcome=f"error {exc}"[:200],
+                    outcome=f"error after {self.clock.mono() - t0:.1f}s: {exc}"[:200],
                 )
                 result = TurnResult(
                     "⚠️ The model is unavailable right now; please try again in a moment.",
@@ -187,7 +188,8 @@ class Agent:
                 tokens_in=reply.usage_in,
                 tokens_out=reply.usage_out,
                 cost=cost,
-                outcome=reply.stop_reason,
+                outcome=f"{reply.stop_reason} {self.clock.mono() - t0:.1f}s"
+                + (f" via {reply.served_by}" if reply.served_by else ""),
             )
             calls = reply.tool_uses
             if not calls:

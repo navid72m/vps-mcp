@@ -22,6 +22,7 @@ provider = "openai"                   # any OpenAI-compatible server: LM Studio,
 name = "qwen/qwen3.5-9b"              # the model id the server lists at /v1/models
 base_url = "http://localhost:1234/v1" # LM Studio's local server (Ollama: http://localhost:11434/v1)
 timeout_s = 300                       # local models can be slow on long prompts
+# fallback = "gemini"                 # another [models.*] entry tried once if this one fails
 reasoning_effort = "none"             # no hidden thinking: about 2x faster answers on a laptop
 max_tokens = 2048
 prices = { input_per_mtok = 0.0, output_per_mtok = 0.0 }   # for cost estimates / budgets

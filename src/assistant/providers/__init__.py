@@ -44,6 +44,7 @@ class Reply:
     usage_in: int = 0
     usage_out: int = 0
     stop_reason: str = "end_turn"
+    served_by: str = ""  # set when a fallback model answered instead of the current one
 
     @property
     def text(self) -> str:

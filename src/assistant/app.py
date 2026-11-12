@@ -72,6 +72,7 @@ class Assistant:
         memory: AssistantMemory,
         clock: Clock | None = None,
         approval_poll: float = 0.05,
+        coalesce_s: float = 1.5,
     ) -> None:
         self.config = config
         self.clock = clock or RealClock()
@@ -100,6 +101,8 @@ class Assistant:
                 self.agent.builtin = self.builtin
         self.owner_chat = config.telegram.allowed_user_ids[0]
         self.turns: dict[int, asyncio.Task[Any]] = {}
+        self.pending: dict[int, list[str]] = {}  # messages waiting for the next turn, per chat
+        self.coalesce_s = coalesce_s
         self.background: set[asyncio.Task[Any]] = set()
         self.started = self.clock.wall()
         self.sleep = SleepDetector(self.clock)
@@ -192,10 +195,16 @@ class Assistant:
         if self.paused:
             await self.channel.send(update.chat_id, "⏸ I'm stopped. Send /resume to continue.")
             return
-        running = self.turns.get(update.chat_id)
+        chat = update.chat_id
+        waiting = self.pending.get(chat)
+        if waiting is not None:  # a turn is already queued: this message joins it
+            waiting.append(text)
+            return
+        self.pending[chat] = [text]
+        running = self.turns.get(chat)
         if running is not None and not running.done():
             await self.channel.send(
-                update.chat_id,
+                chat,
                 "⏳ Still working on your previous message; "
                 "I'll take this one when it's done. (/stop cancels)",
             )
@@ -204,11 +213,14 @@ class Assistant:
             if prev is not None and not prev.done():
                 with contextlib.suppress(BaseException):
                     await prev
-            if not self.paused:
-                await self.chat_turn(update.chat_id, text, "chat")
+            # a long paste arrives as several messages within a second or two: one turn for all
+            await asyncio.sleep(self.coalesce_s)
+            texts = self.pending.pop(chat, [])
+            if texts and not self.paused:
+                await self.chat_turn(chat, "\n\n".join(texts), "chat")
 
         # never block the dispatcher: approvals arrive through it while a turn waits
-        self.turns[update.chat_id] = asyncio.create_task(after(running))
+        self.turns[chat] = asyncio.create_task(after(running))
 
     def conversation(self, chat_id: int) -> str:
         conv = self.state.conversation_current(chat_id)

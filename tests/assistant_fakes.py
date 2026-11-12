@@ -226,6 +226,7 @@ async def harness(tmp: Path, provider: ScriptedProvider | None = None, **over: A
         memory=AssistantMemory(cfg),
         clock=clock,
         approval_poll=0.01,
+        coalesce_s=0.0,
     )
     await a.start()
     return Harness(a, tg, prov, clock, log, state)

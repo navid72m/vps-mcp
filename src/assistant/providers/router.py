@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from assistant.config import ModelSection
-from assistant.providers import Msg, Provider, Reply, ToolSpec
+from assistant.providers import Msg, Provider, ProviderError, Reply, ToolSpec
+
+log = logging.getLogger(__name__)
 
 Factory = Callable[[ModelSection], Provider]
 
@@ -53,6 +56,17 @@ class ModelRouter:
     async def complete(
         self, *, system: str, messages: list[Msg], tools: list[ToolSpec], max_tokens: int
     ) -> Reply:
-        return await self._get(self.current).complete(
-            system=system, messages=messages, tools=tools, max_tokens=max_tokens
-        )
+        kw = {"system": system, "messages": messages, "tools": tools, "max_tokens": max_tokens}
+        try:
+            return await self._get(self.current).complete(**kw)  # type: ignore[arg-type]
+        except ProviderError as exc:
+            backup = self.profile.fallback
+            if not backup:
+                raise
+            log.warning("model %s failed (%s); trying %s", self.current, exc, backup)
+            try:
+                reply = await self._get(backup).complete(**kw)  # type: ignore[arg-type]
+            except Exception as exc2:  # noqa: BLE001 - report the original failure too
+                raise ProviderError(f"{exc}; fallback {backup}: {exc2}") from None
+            reply.served_by = backup
+            return reply
