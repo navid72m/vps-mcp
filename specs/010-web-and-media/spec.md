@@ -133,7 +133,7 @@ The operator sends a PDF letter, a Word document or a text file, with or without
 
 ## Assumptions
 
-- **Search provider:** Brave Search API (the operator's choice). The key goes in the Keychain as `brave_api_key`. The free plan is enough for one person.
+- **Search provider:** Tavily by default (free plan, no card, 1,000 credits a month), key `tavily_api_key`. Brave Search API is also supported, but needs a paid plan with a card.
 - **Images** are sent inline (base64). DeepSeek V4.1 Flash through OrcaRouter accepts them (verified 2026-11-12). Models without vision get `vision = false` in the config.
 - **Documents:** PDF text via a pure-Python library (portable to a server later), .docx via its XML, and text files decoded as UTF-8. OCR for scanned PDFs is out of scope.
 - **Limits:**

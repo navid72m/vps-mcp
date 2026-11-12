@@ -720,10 +720,12 @@ with and without lazy loading.
 
 **Web, photos and documents.**
 
-- **Web search and pages.** It can search the web (Brave Search) and read pages or PDF links,
-  and answers with the source links. Send it a link and it reads it. Store a free Brave Search
-  API key once: `security add-generic-password -U -s vps-mcp-assistant -a brave_api_key -w`.
-  Without a key, reading links still works. It refuses links to `localhost`, your home network
+- **Web search and pages.** It can search the web and read pages or PDF links, and answers
+  with the source links. Send it a link and it reads it. Search uses Tavily by default (free
+  plan, no card, 1,000 credits a month; one search is one credit): store its key once with
+  `security add-generic-password -U -s vps-mcp-assistant -a tavily_api_key -w`. Brave Search
+  works too (`[web] search_provider = "brave"`, key `brave_api_key`). Without a key, reading
+  links still works. It refuses links to `localhost`, your home network
   or cloud metadata addresses, including through redirects, so a page can't make it probe your
   network.
 - **Photos and screenshots.** Send one, with or without a question; several photos sent
@@ -735,7 +737,7 @@ with and without lazy loading.
   send photos of the pages instead. Files over 20 MB can't be downloaded by bots.
 - Everything from the web, a photo or a document is untrusted data: instructions inside it are
   never followed, and only your caption counts as your words for "remember".
-- Privacy: search queries go to Brave, pages are fetched from your laptop's IP, and photos and
+- Privacy: search queries go to the search provider, pages are fetched from your laptop's IP, and photos and
   documents go to the model provider.
 
 **Limits and audit.**

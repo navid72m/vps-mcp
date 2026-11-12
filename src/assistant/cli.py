@@ -134,13 +134,13 @@ def cmd_check(args: argparse.Namespace) -> int:
     if cfg.web.enabled:
         prov = provider_for(cfg.secrets.provider, cfg.secrets.service, cfg.secrets.file)
         try:
-            prov.get(cfg.web.search_key_secret)
-            print("web: search ok (Brave), page reading ok")
+            prov.get(cfg.web.key_name)
+            print(f"web: search ok ({cfg.web.search_provider}), page reading ok")
         except SecretMissing:
             print(
-                "web: page reading ok; search not set up (store a Brave Search API key: "
-                f"security add-generic-password -U -s {cfg.secrets.service} "
-                f"-a {cfg.web.search_key_secret} -w)"
+                f"web: page reading ok; search not set up (store a {cfg.web.search_provider} "
+                f"API key: security add-generic-password -U -s {cfg.secrets.service} "
+                f"-a {cfg.web.key_name} -w)"
             )
     return 0
 

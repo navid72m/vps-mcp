@@ -78,3 +78,11 @@
   - `web`: search (result count), read (host, bytes, outcome);
   - `media`: received (kind, mime, bytes, outcome).
 - No queries, page text or file content are logged; the hosts are fine.
+
+## R1 revised (2026-11-12): Tavily as the default
+
+**Change**: Brave's API turned out to need a paid subscription with a card. The default provider is now **Tavily** (`POST https://api.tavily.com/search`, `Authorization: Bearer`, `search_depth: "basic"` = 1 credit). Its free plan has 1,000 credits a month, refilled monthly, with no card, and its results come with page excerpts. Brave stays available with `[web] search_provider = "brave"`.
+
+**Key name**: `<provider>_api_key` unless `search_key_secret` is set.
+
+**Verified live**: 3 relevant results in 2.6 s.

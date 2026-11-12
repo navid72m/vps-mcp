@@ -923,12 +923,12 @@ class Assistant:
         cfg = self.config.web
         try:
             if name == "web__search":
-                key = self.secret(cfg.search_key_secret)
+                key = self.secret(cfg.key_name)
                 if not key:
                     msg = (
-                        "web search is not set up: the operator needs a Brave Search API key, "
-                        "stored with: security add-generic-password -U -s "
-                        f"{self.config.secrets.service} -a {cfg.search_key_secret} -w"
+                        f"web search is not set up: the operator needs a {cfg.search_provider} "
+                        "API key, stored with: security add-generic-password -U -s "
+                        f"{self.config.secrets.service} -a {cfg.key_name} -w"
                     )
                     self.state.audit("web", target="search", outcome="not set up")
                     return envelope({"error": msg}, ok=False)
@@ -937,6 +937,7 @@ class Assistant:
                     key=key,
                     count=int(args.get("count") or cfg.max_results),
                     timeout=cfg.timeout_s,
+                    provider=cfg.search_provider,
                     transport=self.web_transport,
                 )
                 self.state.audit("web", target="search", outcome=f"ok {len(res)} results")

@@ -167,10 +167,18 @@ class ToolsSection(_Strict):
 
 class WebSection(_Strict):
     enabled: bool = True
-    search_key_secret: str = Field(default="brave_api_key", pattern=r"^[a-z0-9_]{1,64}$")
+    # tavily: free plan, no card (1,000 credits a month); brave: paid plan with a card
+    search_provider: Literal["tavily", "brave"] = "tavily"
+    search_key_secret: str = Field(
+        default="", pattern=r"^[a-z0-9_]{0,64}$"
+    )  # "" = <provider>_api_key
     max_results: int = Field(default=5, ge=1, le=10)
     read_chars: int = Field(default=12000, ge=1000, le=50000)
     timeout_s: float = Field(default=20.0, gt=0, le=120)
+
+    @property
+    def key_name(self) -> str:
+        return self.search_key_secret or f"{self.search_provider}_api_key"
 
 
 class ServerSection(_Strict):
