@@ -60,8 +60,8 @@ class TurnResult:
 
 
 Notify = Callable[[], Awaitable[None]]
-# built-in (non-MCP) tool: (name, args, chat_id) -> (content, is_error)
-Builtin = Callable[[str, dict[str, Any], int], Awaitable[tuple[str, bool]]]
+# built-in (non-MCP) tool: (name, args, chat_id, conversation, origin) -> (content, is_error)
+Builtin = Callable[[str, dict[str, Any], int, str, str], Awaitable[tuple[str, bool]]]
 
 
 class Agent:
@@ -226,7 +226,9 @@ class Agent:
             )
             return content, is_err, "error" if is_err else "ok"
         if self.builtin is not None and call.name in {t.name for t in self.builtin_specs}:
-            content, is_err = await self.builtin(call.name, dict(call.input), chat_id)
+            content, is_err = await self.builtin(
+                call.name, dict(call.input), chat_id, conversation, origin
+            )
             server = (
                 "schedule"
                 if call.name.startswith("schedule__")

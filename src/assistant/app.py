@@ -34,6 +34,30 @@ from assistant.toolhub import ToolHub
 log = logging.getLogger(__name__)
 
 
+FILE_CHANGES = ("write", "edit", "delete", "send")
+
+
+def file_preview(op: str, target: Path, args: dict[str, Any]) -> str:
+    try:
+        size = target.stat().st_size if target.is_file() else None
+    except OSError:
+        size = None
+    where = f"{target}" + (f" ({size} bytes)" if size is not None else "")
+    if op == "write":
+        content = str(args.get("content", ""))
+        head = "overwrite" if target.exists() else "create"
+        if target.exists() and not args.get("overwrite"):
+            head = "write (the file exists; overwrite=false will make it fail)"
+        return f"{head} {where}\n--- new content ({len(content)} chars) ---\n{content[:600]}"
+    if op == "edit":
+        old, new = str(args.get("target", "")), str(args.get("replacement", ""))
+        return f"edit {where}\n--- replace ---\n{old[:300]}\n--- with ---\n{new[:300]}"
+    if op == "delete":
+        kind = "directory (must be empty)" if target.is_dir() else "file"
+        return f"DELETE {kind} {where}"
+    return f"send {where} to this Telegram chat"
+
+
 class AlreadyRunning(Exception):
     pass
 
@@ -339,7 +363,7 @@ class Assistant:
         ]
 
     def files_specs(self) -> list[ToolSpec]:
-        return [
+        specs = [
             ToolSpec(
                 "files__read",
                 "Read text content of a file on this laptop. Supports ~, absolute, or relative paths. "
@@ -492,6 +516,10 @@ class Assistant:
                 },
             ),
         ]
+        for t in specs:
+            if t.name.removeprefix("files__") in FILE_CHANGES:
+                t.description += " Needs the operator's approval (they see a preview first)."
+        return specs
 
     def switch_spec(self) -> ToolSpec:
         assert self.router is not None
@@ -509,7 +537,14 @@ class Assistant:
             },
         )
 
-    async def builtin(self, name: str, args: dict[str, Any], chat_id: int) -> tuple[str, bool]:
+    async def builtin(
+        self,
+        name: str,
+        args: dict[str, Any],
+        chat_id: int,
+        conversation: str = "",
+        origin: str = "chat",
+    ) -> tuple[str, bool]:
         if name == "assistant__switch_model":
             if self.router is None:
                 return "no router configured", True
@@ -629,6 +664,10 @@ class Assistant:
 
         if name.startswith("files__"):
             tool_op = name.removeprefix("files__")
+            if tool_op in FILE_CHANGES:
+                denied = await self.approve_file_op(tool_op, args, chat_id, conversation, origin)
+                if denied is not None:
+                    return json.dumps(denied), True
             if tool_op == "read":
                 res = files.files_read(
                     str(args.get("path", "")),
@@ -682,6 +721,34 @@ class Assistant:
             return json.dumps(res), not res.get("ok", False)
 
         return f"unknown tool {name}", True
+
+    async def approve_file_op(
+        self, op: str, args: dict[str, Any], chat_id: int, conversation: str, origin: str
+    ) -> dict[str, Any] | None:
+        """Changing or sending a file needs the operator's tap, like any state-changing tool.
+
+        Returns None when approved, else the refusal to give the model."""
+        target = files.resolve_path(str(args.get("path", "")))
+        if (no := files.refused(target)) is not None:
+            return no
+        preview = file_preview(op, target, args)
+        shown = {k: self.hub.mask(json.dumps(v, default=str))[:300] for k, v in args.items()}
+        outcome = await self.approvals.request(
+            chat_id=chat_id,
+            conversation=conversation,
+            server="files",
+            tool=op,
+            args=args,
+            shown_args=shown,
+            preview=preview,
+            origin=origin,
+        )
+        if outcome.status != "approved":
+            return {"ok": False, "error": f"not done: {outcome.status} by the operator"}
+        if not self.approvals.bound(outcome.approval_id, "files", op, args):
+            return {"ok": False, "error": "approval does not match the call"}
+        self.approvals.mark_executed(outcome.approval_id)
+        return None
 
     def switch_model(self, alias: str) -> str:
         """Switch now; returns the message for the operator."""

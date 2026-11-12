@@ -68,6 +68,67 @@ SKIP_EXTENSIONS = {
 }
 
 
+# Never read, list, send or change these: credentials, the assistant's own config/state, and
+# agent-memory's files (memory goes through the memory tools and their policy).
+SENSITIVE_DIRS = (
+    ".ssh",
+    ".gnupg",
+    ".aws",
+    ".azure",
+    ".kube",
+    ".docker",
+    ".password-store",
+    ".config/gcloud",
+    ".config/gh",
+    ".config/vps-mcp",
+    ".config/assistant",
+    ".local/state/assistant",
+    ".local/share/agent-memory",
+    "Library/Keychains",
+    "Library/Cookies",
+)
+SENSITIVE_NAMES = {
+    ".netrc",
+    ".git-credentials",
+    ".pgpass",
+    ".npmrc",
+    ".pypirc",
+    "credentials",
+    "secrets.toml",
+}
+SENSITIVE_GLOBS = (
+    "id_rsa*",
+    "id_ed25519*",
+    "id_ecdsa*",
+    "id_dsa*",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "*.kdbx",
+    ".env",
+    ".env.*",
+)
+
+
+def sensitive(p: Path) -> str | None:
+    """Why `p` (already resolved) is off limits, or None."""
+    home = Path.home().resolve()
+    for d in SENSITIVE_DIRS:
+        root = home / d
+        if p == root or root in p.parents:
+            return f"~/{d} is protected"
+    name = p.name
+    if name in SENSITIVE_NAMES or any(fnmatch.fnmatch(name, g) for g in SENSITIVE_GLOBS):
+        return f"{name} looks like a credential file"
+    return None
+
+
+def refused(p: Path) -> dict[str, Any] | None:
+    why = sensitive(p)
+    return {"ok": False, "error": f"refused: {why}", "path": str(p)} if why else None
+
+
 def resolve_path(raw_path: str) -> Path:
     """Resolve ~, environment variables, and relative paths safely."""
     expanded = os.path.expanduser(os.path.expandvars(raw_path.strip()))
@@ -85,6 +146,8 @@ def files_read(
     """Read a text file with 1-based start_line and end_line bounds."""
     try:
         target = resolve_path(path)
+        if (no := refused(target)) is not None:
+            return no
         if not target.exists():
             return {"ok": False, "error": f"File not found: {target}"}
         if target.is_dir():
@@ -141,6 +204,8 @@ def files_write(path: str, content: str, overwrite: bool = False) -> dict[str, A
     """Write text content to a file. Fails if file exists unless overwrite is True."""
     try:
         target = resolve_path(path)
+        if (no := refused(target)) is not None:
+            return no
         if target.exists() and not overwrite:
             return {
                 "ok": False,
@@ -164,6 +229,8 @@ def files_edit(path: str, target: str, replacement: str) -> dict[str, Any]:
     """Replace occurrences of `target` with `replacement` in a text file."""
     try:
         target_path = resolve_path(path)
+        if (no := refused(target_path)) is not None:
+            return no
         if not target_path.exists():
             return {"ok": False, "error": f"File not found: {target_path}"}
         if target_path.is_dir():
@@ -195,6 +262,8 @@ def files_list(
     """List entries in a directory up to max_depth."""
     try:
         base = resolve_path(path)
+        if (no := refused(base)) is not None:
+            return no
         if not base.exists():
             return {"ok": False, "error": f"Directory not found: {base}"}
         if not base.is_dir():
@@ -216,6 +285,8 @@ def files_list(
                 if not include_hidden and item.name.startswith("."):
                     continue
                 if item.is_dir() and item.name in IGNORED_DIRS:
+                    continue
+                if sensitive(item.resolve()):
                     continue
 
                 if fnmatch.fnmatch(item.name, pattern):
@@ -264,6 +335,8 @@ def files_search(
     """Search for files by name glob and/or search inside files for text content."""
     try:
         base = resolve_path(path)
+        if (no := refused(base)) is not None:
+            return no
         if not base.exists():
             return {"ok": False, "error": f"Directory not found: {base}"}
 
@@ -284,7 +357,13 @@ def files_search(
                 pass
 
             # Prune ignored dirs in-place
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in IGNORED_DIRS]
+            dirs[:] = [
+                d
+                for d in dirs
+                if not d.startswith(".")
+                and d not in IGNORED_DIRS
+                and not sensitive((Path(root) / d).resolve())
+            ]
 
             for fname in files:
                 scanned += 1
@@ -296,6 +375,8 @@ def files_search(
                     continue
 
                 fpath = Path(root) / fname
+                if sensitive(fpath.resolve()):
+                    continue
                 ext = fpath.suffix.lower()
 
                 # Check filename match first (exact match or any query word >= 3 chars)
@@ -354,6 +435,8 @@ def files_info(path: str) -> dict[str, Any]:
     """Get metadata for a file or directory."""
     try:
         target = resolve_path(path)
+        if (no := refused(target)) is not None:
+            return no
         if not target.exists():
             return {"ok": False, "exists": False, "path": str(target)}
 
@@ -379,6 +462,8 @@ def files_delete(path: str) -> dict[str, Any]:
     """Delete a file or empty directory."""
     try:
         target = resolve_path(path)
+        if (no := refused(target)) is not None:
+            return no
         if not target.exists():
             return {"ok": False, "error": f"Path not found: {target}"}
 

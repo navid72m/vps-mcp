@@ -17,6 +17,7 @@ from assistant.files import (
 )
 from assistant.providers.scripted import ScriptedProvider
 from tests.assistant_fakes import harness, say, use
+from tests.unit.pa.test_flows import approve_flow
 
 
 def test_files_read_nonexistent(tmp_path: Path) -> None:
@@ -178,8 +179,11 @@ async def test_assistant_file_tools_execution(tmp_path: Path) -> None:
 
     h = await harness(tmp_path, p)
     await h.say("Write new.txt please")
+    await approve_flow(h)
     await h.finish()
 
+    ask = next(t for t in h.tg.texts() if t.startswith("🔐"))
+    assert "create" in ask and "brand new" in ask
     assert target.read_text(encoding="utf-8") == "brand new"
     assert h.tg.texts()[-1] == "File written."
 
@@ -216,6 +220,7 @@ async def test_files_send_and_command(tmp_path: Path) -> None:
     )
     h = await harness(tmp_path, p)
     await h.say("Send book please")
+    await approve_flow(h)
     await h.finish()
     assert "sendDocument" in h.tg.calls
     assert h.tg.texts()[-1] == "Sent book."
@@ -223,3 +228,87 @@ async def test_files_send_and_command(tmp_path: Path) -> None:
     # Test /send command
     await h.say(f"/send {doc}")
     assert any("Uploading" in t for t in h.tg.texts())
+
+
+@pytest.mark.asyncio
+async def test_rejected_or_unanswered_changes_do_nothing(tmp_path: Path) -> None:
+    keep = tmp_path / "keep.txt"
+    keep.write_text("original")
+    p = ScriptedProvider(
+        [
+            use("files__delete", {"path": str(keep)}),
+            say("Not deleted."),
+            use("files__edit", {"path": str(keep), "target": "original", "replacement": "x"}),
+            say("Not edited."),
+        ]
+    )
+    h = await harness(tmp_path, p)
+    await h.say("delete keep.txt")
+    await approve_flow(h, "r")
+    await h.finish()
+    assert keep.read_text() == "original"
+    ask = next(t for t in h.tg.texts() if t.startswith("🔐"))
+    assert "DELETE file" in ask and str(keep) in ask
+    await h.say("then edit it")
+    await approve_flow(h, "r")
+    await h.finish()
+    assert keep.read_text() == "original"
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        ".ssh/id_ed25519",
+        ".ssh/config",
+        ".config/assistant/assistant.toml",
+        ".config/vps-mcp/server.toml",
+        ".local/share/agent-memory/memories/x.md",
+        "projects/app/.env",
+        "projects/app/server.pem",
+        ".aws/credentials",
+    ],
+)
+def test_protected_paths_are_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rel: str
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    f = tmp_path / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("SECRET")
+    for res in (
+        files_read(str(f)),
+        files_info(str(f)),
+        files_write(str(f), "x", overwrite=True),
+        files_edit(str(f), "SECRET", "x"),
+        files_delete(str(f)),
+    ):
+        assert not res["ok"] and res["error"].startswith("refused:")
+    assert f.read_text() == "SECRET"
+
+
+def test_listing_and_search_skip_protected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes" / "todo.txt").write_text("call the bank SECRETWORD")
+    (tmp_path / "notes" / ".env").write_text("TOKEN=SECRETWORD")
+    (tmp_path / "notes" / "deploy.key").write_text("SECRETWORD")
+    (tmp_path / ".ssh").mkdir()
+    (tmp_path / ".ssh" / "id_rsa").write_text("SECRETWORD")
+    listed = files_list(str(tmp_path), max_depth=3, include_hidden=True)
+    names = {e["name"] for e in listed["entries"]}
+    assert "todo.txt" in names and not names & {".env", "deploy.key", ".ssh", "id_rsa"}
+    found = files_search(str(tmp_path), "SECRETWORD")
+    assert [m["path"] for m in found["matches"]] == [str(tmp_path / "notes" / "todo.txt")]
+    assert files_list(str(tmp_path / ".ssh"))["error"].startswith("refused:")
+
+
+@pytest.mark.asyncio
+async def test_protected_change_is_refused_without_asking(tmp_path: Path) -> None:
+    p = ScriptedProvider(
+        [use("files__send", {"path": "~/.ssh/id_ed25519"}), say("I can't send that.")]
+    )
+    h = await harness(tmp_path, p)
+    await h.say("send me my ssh key")
+    await h.finish()
+    assert not any(t.startswith("🔐") for t in h.tg.texts())  # nothing to approve
+    assert "sendDocument" not in h.tg.calls
