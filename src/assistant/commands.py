@@ -16,9 +16,9 @@ if TYPE_CHECKING:
 
 HELP = (
     "Commands: /new · /done · /status · /usage · /remind <in 15m|at 14:00> <text> · /schedules · "
-    "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /ls [path] · /cat <path> · "
-    "/send <path> · /stop · /resume · /forget · /model [name] · /tools · /me [all|export] · "
-    "/interview"
+    "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /agenda [today|tomorrow|week] · "
+    "/inbox · /ls [path] · /cat <path> · /send <path> · /stop · /resume · /forget · /model [name] · "
+    "/tools · /me [all|export] · /interview"
 )
 
 
@@ -46,6 +46,8 @@ async def dispatch(a: Assistant, chat_id: int, text: str) -> None:
         "/tools": tools,
         "/me": me,
         "/interview": interview,
+        "/agenda": agenda,
+        "/inbox": inbox,
         "/cancel": cancel,
     }.get(cmd)
     if handler is None:
@@ -380,3 +382,63 @@ async def interview(a: Assistant, chat_id: int, rest: str) -> None:
 
 async def cancel(a: Assistant, chat_id: int, rest: str) -> None:
     await a.channel.send(chat_id, "OK, nothing changed.")
+
+
+async def agenda(a: Assistant, chat_id: int, rest: str) -> None:
+    from datetime import timedelta
+
+    from assistant import calendar
+
+    if not a.config.google.enabled:
+        await a.channel.send(chat_id, "Google Calendar is not enabled in assistant.toml.")
+        return
+
+    now = a.clock.wall()
+    tz = a.tz
+    target = rest.strip().lower()
+    if target == "tomorrow":
+        tomorrow = (now + timedelta(days=1)).astimezone(tz)
+        time_min = tomorrow.strftime("%Y-%m-%d")
+        time_max = (tomorrow + timedelta(days=1)).strftime("%Y-%m-%d")
+        heading = "Tomorrow's Agenda"
+    elif target == "week":
+        time_min = now.astimezone(tz).strftime("%Y-%m-%d")
+        time_max = (now + timedelta(days=7)).astimezone(tz).strftime("%Y-%m-%d")
+        heading = "This Week's Agenda"
+    else:
+        today = now.astimezone(tz)
+        time_min = today.strftime("%Y-%m-%d")
+        time_max = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+        heading = "Today's Agenda"
+
+    try:
+        auth = a.google_auth()
+        events = await calendar.list_events(
+            auth,
+            time_min=time_min,
+            time_max=time_max,
+            max_results=a.config.google.max_events,
+            timezone=a.config.assistant.timezone,
+        )
+        text = calendar.format_agenda(events, heading)
+        await a.channel.send(chat_id, text)
+    except Exception as exc:
+        await a.channel.send(chat_id, f"⚠️ Calendar error: {exc}")
+
+
+async def inbox(a: Assistant, chat_id: int, rest: str) -> None:
+    from assistant import gmail
+
+    if not a.config.google.enabled:
+        await a.channel.send(chat_id, "Gmail is not enabled in assistant.toml.")
+        return
+
+    try:
+        auth = a.google_auth()
+        msgs = await gmail.list_inbox(
+            auth, unread_only=True, max_results=a.config.google.max_emails
+        )
+        text = gmail.format_inbox(msgs, "Unread Inbox")
+        await a.channel.send(chat_id, text)
+    except Exception as exc:
+        await a.channel.send(chat_id, f"⚠️ Gmail error: {exc}")

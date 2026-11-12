@@ -67,6 +67,8 @@ AUDIT_KINDS = (
     "toolset",
     "web",
     "media",
+    "calendar",
+    "email",
 )
 
 

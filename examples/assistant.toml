@@ -60,6 +60,12 @@ store = ""                            # default: agent-memory's store (shared wi
 project = "personal"
 allow_scopes = ["project:vps-*", "environment:*"]   # also see vps-mcp's memories
 
+[google]
+enabled = false                       # set to true once authorized with `assistant google-auth`
+credentials_path = "~/.config/assistant/google_client.json"  # OAuth Desktop Client JSON from Google Cloud Console
+max_emails = 10
+max_events = 20
+
 [[server]]
 name = "vps"
 command = ["/absolute/path/to/uv", "run", "--directory", "/absolute/path/to/vps-mcp",

@@ -22,6 +22,8 @@ BUILTIN_PREFIXES = (
     "tools__",
     "me__",
     "web__",
+    "calendar__",
+    "email__",
 )
 BUILTIN_CORE = (
     "memory__search",
@@ -67,6 +69,38 @@ BUILTIN_SETS: dict[str, ToolsetSection] = {
         tools=["schedule__remove", "schedule__pause", "schedule__resume"],
         description="cancel, pause or resume reminders, timers and schedules",
         keywords=["cancel", "pause", "resume", "stop reminder", "delete reminder"],
+    ),
+    "calendar": ToolsetSection(
+        tools=["calendar__*"],
+        description="Google Calendar: view upcoming events and schedule meetings",
+        keywords=[
+            "calendar",
+            "event",
+            "meeting",
+            "agenda",
+            "appointment",
+            "schedule",
+            "busy",
+            "free time",
+            "call",
+            "sync",
+            "booking",
+        ],
+    ),
+    "email": ToolsetSection(
+        tools=["email__*"],
+        description="Gmail: check inbox, search emails, read messages, create drafts and send emails",
+        keywords=[
+            "email",
+            "mail",
+            "gmail",
+            "inbox",
+            "unread",
+            "send email",
+            "draft",
+            "reply to",
+            "message from",
+        ],
     ),
 }
 LINE_CAP = 160

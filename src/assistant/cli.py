@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import shutil
@@ -235,6 +236,93 @@ def cmd_secrets(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_google_auth(args: argparse.Namespace) -> int:
+    import subprocess
+
+    from assistant import google_auth
+    from assistant.secrets import provider_for
+
+    cfg = _load(args)
+    prov = provider_for(cfg.secrets.provider, cfg.secrets.service, cfg.secrets.file)
+
+    client_id = ""
+    client_secret = ""
+    path = Path(cfg.google.credentials_path).expanduser()
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            info = raw.get("installed") or raw.get("web") or raw
+            client_id = str(info.get("client_id", "")).strip()
+            client_secret = str(info.get("client_secret", "")).strip()
+            print(f"Loaded client credentials from {path}")
+        except Exception as exc:
+            print(f"Warning: could not read {path}: {exc}", file=sys.stderr)
+
+    if not client_id:
+        with contextlib.suppress(Exception):
+            client_id = prov.get(cfg.google.client_id_secret)
+    if not client_secret:
+        with contextlib.suppress(Exception):
+            client_secret = prov.get(cfg.google.client_secret_secret)
+
+    if not client_id or not client_secret:
+        print(
+            "Error: Google client credentials not found.\n"
+            f"1. Download OAuth client ID JSON from Google Cloud Console to {cfg.google.credentials_path}, OR\n"
+            f"2. Store secrets: {prov.hint(cfg.google.client_id_secret)} and {prov.hint(cfg.google.client_secret_secret)}",
+            file=sys.stderr,
+        )
+        return EXIT_CONFIG
+
+    url = google_auth.make_auth_url(client_id)
+    print("\n1. Open this URL in your browser:\n")
+    print(f"   {url}\n")
+    print(
+        "2. Sign in with your Google account, approve Calendar and Gmail permissions, and copy the code.\n"
+    )
+    try:
+        code = input("3. Paste the authorization code here: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print("\nAborted.")
+        return 1
+
+    if not code:
+        print("Error: empty authorization code.", file=sys.stderr)
+        return EXIT_CONFIG
+
+    print("\nExchanging code for refresh token...")
+    try:
+        refresh_token = asyncio.run(google_auth.exchange_auth_code(client_id, client_secret, code))
+    except Exception as exc:
+        print(f"Error exchanging code: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+
+    if cfg.secrets.provider == "keychain":
+        security_bin = shutil.which("security") or "/usr/bin/security"
+        proc = subprocess.run(
+            [
+                security_bin,
+                "add-generic-password",
+                "-U",
+                "-s",
+                cfg.secrets.service,
+                "-a",
+                cfg.google.token_secret,
+                "-w",
+                refresh_token,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0:
+            print(f"✓ Saved refresh token to macOS Keychain ({cfg.google.token_secret})")
+            return 0
+
+    print(f"✓ Obtained refresh token! Please store it using:\n{prov.hint(cfg.google.token_secret)}")
+    return 0
+
+
 def cmd_knowme(args: argparse.Namespace) -> int:
     """Re-file memories saved before feature 009 (`operator.*`) under `me.<category>.*`."""
     from assistant import knowme
@@ -288,6 +376,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("secrets", help="print the commands that store the secrets").set_defaults(
         func=cmd_secrets
     )
+    sub.add_parser(
+        "google-auth", help="authorize Google Calendar and Gmail via OAuth 2.0"
+    ).set_defaults(func=cmd_google_auth)
     return p
 
 
