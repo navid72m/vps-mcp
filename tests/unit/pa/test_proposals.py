@@ -70,3 +70,46 @@ async def test_long_paste_is_stored_whole_and_not_prefetched(tmp_path: Path) -> 
     assert conv is not None
     stored = h.state.recent_turns(str(conv["id"]), 2)[0]["text"]
     assert stored == paste.strip() and len(stored) > 19000  # not cut at 8 KB
+
+
+IDENTITY = (
+    '{"memories": [{"type": "semantic", "subject": "operator.identity", "title": "Who the '
+    'operator is", "content": "The operator is Sam Rivera, a backend engineer in Berlin.", '
+    '"confidence": "verified", "pin": true}, {"type": "semantic", "subject": "operator.stack", '
+    '"title": "Stack", "content": "Sam works with Python and Postgres.", "pin": false}]}'
+)
+
+
+def test_at_most_two_pins() -> None:
+    many = (
+        '{"memories": ['
+        + ", ".join(
+            f'{{"type": "semantic", "subject": "a.{i}", "title": "t", "content": "c", "pin": true}}'
+            for i in range(4)
+        )
+        + "]}"
+    )
+    props = parse_proposals(many, 5)
+    assert props is not None and [p["pin"] for p in props] == [True, True, False, False]
+    assert parse_proposals(GOOD, 5)[0]["pin"] is False  # type: ignore[index]
+
+
+async def test_pinned_identity_is_known_in_the_next_conversation(tmp_path: Path) -> None:
+    p = ScriptedProvider(
+        [say("Nice to meet you."), Reply([TextBlock(IDENTITY)], 500, 200), say("You're Sam.")]
+    )
+    h = await harness(tmp_path, p)
+    await h.say("I'm Sam Rivera, a backend engineer in Berlin")
+    await h.finish()
+    await h.say("/done")
+    ident = next(i for i, t in enumerate(h.tg.texts()) if "operator.identity" in t)
+    assert "📌 Pinned" in h.tg.texts()[ident]
+    other = next(i for i, t in enumerate(h.tg.texts()) if "operator.stack" in t)
+    assert "📌" not in h.tg.texts()[other]
+    save = next(d for label, d in h.tg.buttons(ident) if label.startswith("💾"))
+    await h.press(save)
+    await h.say("do you remember my name?")  # a new conversation
+    await h.finish()
+    system = p.requests[-1].system
+    assert "Sam Rivera" in system  # pinned: in the prompt, no search needed
+    assert "Never claim to have searched" in system

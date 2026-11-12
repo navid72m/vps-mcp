@@ -20,10 +20,15 @@ reason and rejected alternatives), verified facts about the operator's systems, 
 lessons from problems. Skip small talk, transient state, anything already obvious, secrets,
 passwords, tokens and personal data that is not needed later. Each memory must be concise
 (<= 600 characters) and self-contained.
+If the operator said who they are, include one short identity memory (subject
+"operator.identity": name, role, where they work or live) and set "pin": true on it. "pin": true
+means the assistant sees the memory in every conversation: use it at most twice, only for the
+identity and for lasting preferences on how to talk to the operator; never for health, family,
+finances or other sensitive details.
 Answer with JSON only: {{"memories": [{{"type": "semantic|decision|procedural|episodic",
 "subject": "dotted.key", "title": "short title", "content": "...", "confidence":
-"verified|inferred", "why": "why keep it"}}]}}. Return {{"memories": []}} if nothing is worth
-keeping."""
+"verified|inferred", "why": "why keep it", "pin": false}}]}}. Return {{"memories": []}} if
+nothing is worth keeping."""
 
 SEARCH_SPEC = ToolSpec(
     "memory__search",
@@ -159,6 +164,7 @@ class AssistantMemory:
                 "confidence": proposal.get("confidence") or "inferred",
                 "source_kind": "task",
                 "source_ref": f"conv:{conversation}",
+                "pinned": bool(proposal.get("pin")),  # shown on the proposal before the tap
             }
         )
 
@@ -181,7 +187,8 @@ def parse_proposals(text: str, n: int) -> list[dict[str, Any]] | None:
             continue
     if not isinstance(data, dict):
         return None
-    out = []
+    out: list[dict[str, Any]] = []
+    pins = 0
     for it in (data.get("memories") or [])[:n]:
         if not isinstance(it, dict) or it.get("type") not in TYPES:
             continue
@@ -189,10 +196,11 @@ def parse_proposals(text: str, n: int) -> list[dict[str, Any]] | None:
             isinstance(it.get(k), str) and it.get(k) for k in ("subject", "title", "content")
         ):
             continue
-        out.append(
-            {
-                k: str(it.get(k, ""))[:1500]
-                for k in ("type", "subject", "title", "content", "confidence", "why")
-            }
-        )
+        item: dict[str, Any] = {
+            k: str(it.get(k, ""))[:1500]
+            for k in ("type", "subject", "title", "content", "confidence", "why")
+        }
+        item["pin"] = it.get("pin") is True and pins < 2  # at most two, the first ones
+        pins += int(item["pin"])
+        out.append(item)
     return out

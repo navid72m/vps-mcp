@@ -843,7 +843,9 @@ class Assistant:
             self.state.proposal_add(pid, conversation, p)
             text = (
                 f"💡 Remember this? [{p['type']}] {p['subject']}\n{p['title']}\n\n"
-                f"{p['content']}" + (f"\n\nWhy: {p['why']}" if p.get("why") else "")
+                f"{p['content']}"
+                + (f"\n\nWhy: {p['why']}" if p.get("why") else "")
+                + ("\n📌 Pinned: I'll see this in every conversation." if p.get("pin") else "")
             )
             await self.channel.send(
                 chat_id,
