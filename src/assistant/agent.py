@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from assistant import toolsets
+from assistant import knowme, toolsets
 from assistant.budget import Budget, BudgetExceeded
 from assistant.clock import Clock
 from assistant.config import Config
@@ -90,6 +90,7 @@ class Agent:
         self.tz = zoneinfo.ZoneInfo(config.assistant.timezone)
         self.builtin_specs: list[ToolSpec] = []
         self.proposal_error: str | None = None  # why the last /done produced no proposals
+        self.turn_text = ""  # the operator's own message this turn (the remember gate's source)
         self.builtin: Builtin | None = None
 
     @property
@@ -101,8 +102,22 @@ class Agent:
             name=self.config.assistant.name,
             tz=self.config.assistant.timezone,
             catalog=f"\n{self.catalog().render()}\n" if self.lazy else "",
-            core=self.memory.pinned_core(),
+            core=self.knowledge(),
         )
+
+    def knowledge(self) -> str:
+        """What the assistant knows without searching (feature 009): the operator's profile,
+        recent conversations, interview mode, then other pinned memory."""
+        if not self.memory.available:
+            return self.memory.pinned_core()
+        interview = self.state.kv_json("interview", knowme.interview_default())
+        parts = [
+            knowme.render_card(self.memory.facts(include_sensitive=False)),
+            knowme.render_recaps(self.memory.recaps(), self.clock.wall()),
+            knowme.interview_prompt(interview),
+            self.memory.pinned_core(),
+        ]
+        return "\n\n".join(p for p in parts if p)
 
     def context(self, summary: str) -> str:
         now = self.clock.wall().astimezone(self.tz)
@@ -239,6 +254,7 @@ class Agent:
         on_progress: Notify | None = None,
     ) -> TurnResult:
         self.budget.new_turn()
+        self.turn_text = text if origin == "chat" else ""
         turn = self.state.operator_turn(conversation, advance=True)
         if self.lazy:
             self.prepare_tools(conversation, text, turn, origin)
@@ -348,18 +364,7 @@ class Agent:
             content, is_err = await self.builtin(
                 call.name, dict(call.input), chat_id, conversation, origin
             )
-            server = (
-                "schedule"
-                if call.name.startswith("schedule__")
-                else "files"
-                if call.name.startswith("files__")
-                else "assistant"
-            )
-            tool = (
-                call.name.removeprefix("assistant__")
-                .removeprefix("schedule__")
-                .removeprefix("files__")
-            )
+            server, _, tool = call.name.partition("__")
             self.state.audit(
                 "tool_call",
                 conversation=conversation,
@@ -373,6 +378,18 @@ class Agent:
             call.name, dict(call.input), origin=origin, conversation=conversation, chat_id=chat_id
         )
         return outcome.content, outcome.is_error, outcome.status
+
+    def save_recap(self, conversation: str) -> None:
+        self.state.kv_del(f"recap_pending:{conversation}")
+        parsed = knowme.recap_text(self.memory.last_recap or {})
+        if parsed is None:
+            return
+        conv = self.state.conversation_get(conversation) or {}
+        day = str(conv.get("last_activity") or conv.get("started") or self.clock.wall().isoformat())
+        try:
+            self.memory.save_recap(day[:10], conversation, *parsed)
+        except Exception as exc:  # noqa: BLE001 - a recap is never worth failing /done for
+            log.warning("recap not saved: %s", exc)
 
     async def end_conversation(self, conversation: str) -> list[dict[str, Any]]:
         """Propose memories for an ended conversation (FR-018). Returns the proposals."""
@@ -401,6 +418,7 @@ class Agent:
                 cost=cost,
                 outcome="proposals",
             )
+            self.save_recap(conversation)
         except (BudgetExceeded, ProviderError, ProposalError) as exc:
             log.warning("no memory proposals: %s", exc)
             self.proposal_error = str(exc)[:200]
@@ -413,5 +431,9 @@ class Agent:
                 tokens_out=tout,
                 outcome=f"proposals failed: {exc}"[:200],
             )
+            key = f"recap_pending:{conversation}"
+            first = (self.state.kv_get(key) or "").split("|")[0]
+            now = self.clock.wall().isoformat()
+            self.state.kv_set(key, f"{first or now}|{now}")  # retried by the scheduler (R5)
             return []
         return props

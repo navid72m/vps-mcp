@@ -661,6 +661,8 @@ dropped before any model or tool call, and audited.
 | `/forget` | Delete stored conversation history (memory is not affected) |
 | `/model [name]` | List the models (with switch buttons) or switch to one |
 | `/tools` | Core tools, toolsets, which are loaded now, and the size of the tool list |
+| `/me` · `/me all` · `/me export` | What it knows about you, with edit/remove buttons · including sensitive facts · as a file |
+| `/interview` | Getting-to-know-you questions; `/interview stop`, `/interview sensitive on` |
 
 **Approvals.** Each tool has a policy: `auto`, `ask` or `never`. By default read-only tools are
 `auto` and everything else is `ask`; tools that aren't allowlisted are never offered to the
@@ -671,10 +673,30 @@ preview (vps-mcp's `confirm=false` plan), with **Approve / Reject** buttons.
 - Buttons are signed with a key that changes on every restart, so old or forged buttons do nothing.
 - Scheduled runs **always** ask before a state-changing action, whatever the policy.
 
-**Memory.** Every turn includes agent-memory's pinned core, and the model can search and read
-memories. It **cannot** write them. At the end of a conversation (`/done`, or 30 minutes idle) it
-proposes up to 5 memories, and only the ones you tap **Save** on are stored, through
-agent-memory's normal write policy (secrets refused, duplicates merged, conflicts flagged).
+**Knowing you.** The assistant keeps a profile of you and the people in your life, and
+notes on your recent conversations, in the local agent-memory store:
+
+- **"Remember …"** (also "note that", "merk dir", "یادت باشه") saves the fact right away. The
+  bot itself confirms it ("📝 Saved: …") with an **↩️ Undo** button that works for 24 hours.
+  Correcting a known fact ("actually Sara moved to Munich") replaces it and shows what it was.
+  Only *your own message* can do this: text from a tool, file, web page or memory can at most
+  become a suggestion, and passwords, PINs and keys are never stored.
+- **Your profile** (identity, work, people, interests, routines) is in every conversation, so
+  it knows your name and your sister's city without searching. `/me` shows it with ✏️ Edit and
+  🗑 Remove buttons, `/me all` includes sensitive facts, `/me export` sends everything as a
+  file. "Forget my address" lists the matches for you to confirm.
+- **Sensitive facts** (health and medication, finances, relationships, religion, politics) are
+  kept only when you explicitly ask, never shown in the everyday profile, and never suggested.
+- **Recaps:** when a conversation ends (`/done`, `/new` or 30 minutes idle) it writes a short
+  recap (topics, outcomes, open loops). The next conversation starts with the last few, so it
+  remembers what you talked about. This uses the same model call as the suggestions below.
+- **Suggestions:** things it *infers* are proposed at the end of a conversation with 💾 Save /
+  🗑 Discard and a **Save all** button; anything it already knows is not proposed again.
+- **`/interview`** asks you one question at a time (name, place, work, people, interests,
+  answer style) to fill the profile quickly; skip or stop any time, it resumes where it left
+  off. A thin profile gets one offer at most once a week.
+- Memories saved before this existed (`operator.*`) are read as they are;
+  `assistant knowme migrate --apply` re-files them under the new scheme.
 
 **Tools and context.** Not every tool is sent to the model on every message: tool definitions
 alone were about 10,000 tokens per call. A few **core** tools are always there (memory search,

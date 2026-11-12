@@ -22,6 +22,9 @@ BUILTIN = [
     "schedule__resume",
     "assistant__switch_model",
     "tools__load",
+    "me__remember",
+    "me__forget",
+    "me__interview",
     *(f"files__{x}" for x in "read write edit list search info delete send".split()),
 ]
 
@@ -49,7 +52,7 @@ def catalog(cfg: Config | None = None, up: bool = True) -> toolsets.Catalog:
 
 def test_example_grouping() -> None:
     c = catalog()
-    assert c.core[:6] == list(toolsets.BUILTIN_CORE)
+    assert c.core[: len(toolsets.BUILTIN_CORE)] == list(toolsets.BUILTIN_CORE)
     assert {"vps__list_services", "vps__get_service_status"} <= set(c.core)
     assert set(c.sets) == {
         "db", "deploy", "files", "gitlab", "jobs", "memory-admin", "migration", "schedules",

@@ -17,7 +17,8 @@ if TYPE_CHECKING:
 HELP = (
     "Commands: /new · /done · /status · /usage · /remind <in 15m|at 14:00> <text> · /schedules · "
     "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /ls [path] · /cat <path> · "
-    "/send <path> · /stop · /resume · /forget · /model [name] · /tools"
+    "/send <path> · /stop · /resume · /forget · /model [name] · /tools · /me [all|export] · "
+    "/interview"
 )
 
 
@@ -43,6 +44,9 @@ async def dispatch(a: Assistant, chat_id: int, text: str) -> None:
         "/forget": forget,
         "/model": model,
         "/tools": tools,
+        "/me": me,
+        "/interview": interview,
+        "/cancel": cancel,
     }.get(cmd)
     if handler is None:
         await a.channel.send(chat_id, f"Unknown command. {HELP}")
@@ -360,3 +364,19 @@ def tools_text(a: Assistant, chat_id: int) -> str:
     if idle:
         lines.append("Not loaded: " + " · ".join(idle))
     return "\n".join(lines)
+
+
+async def me(a: Assistant, chat_id: int, rest: str) -> None:
+    from assistant import knowme_runtime
+
+    await knowme_runtime.show_me(a, chat_id, rest)
+
+
+async def interview(a: Assistant, chat_id: int, rest: str) -> None:
+    from assistant import knowme_runtime
+
+    await knowme_runtime.interview_cmd(a, chat_id, rest)
+
+
+async def cancel(a: Assistant, chat_id: int, rest: str) -> None:
+    await a.channel.send(chat_id, "OK, nothing changed.")

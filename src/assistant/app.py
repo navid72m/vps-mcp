@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from assistant import commands, files
+from assistant import commands, files, knowme, knowme_runtime
 from assistant.agent import Agent
 from assistant.approvals import Approvals, Signer
 from assistant.budget import Budget, BudgetExceeded
@@ -123,6 +123,7 @@ class Assistant:
         self.router = provider if isinstance(provider, ModelRouter) else None
         specs = self.schedule_specs()
         specs.extend(self.files_specs())
+        specs.extend(knowme.SPECS)
         if self.router is not None:
             self.budget.prices = self.router.profile.prices
             if len(self.router.profiles) > 1:
@@ -132,6 +133,8 @@ class Assistant:
         self.owner_chat = config.telegram.allowed_user_ids[0]
         self.turns: dict[int, asyncio.Task[Any]] = {}
         self.pending: dict[int, list[str]] = {}  # messages waiting for the next turn, per chat
+        # facts mentioned without a request to remember: offered at the end of the conversation
+        self.pending_suggestions: dict[str, list[dict[str, Any]]] = {}
         self.coalesce_s = coalesce_s
         self.background: set[asyncio.Task[Any]] = set()
         self.started = self.clock.wall()
@@ -220,6 +223,8 @@ class Assistant:
             )
             return
         text = update.text.strip()
+        if await knowme_runtime.finish_edit(self, update.chat_id, text):
+            return
         if text.startswith("/"):
             await commands.dispatch(self, update.chat_id, text)
             return
@@ -281,7 +286,12 @@ class Assistant:
             with contextlib.suppress(Exception):
                 await self.channel.send(chat_id, "⏹ Cancelled.")
             raise
-        await self.channel.send(chat_id, result.text, markdown=True)
+        reply = result.text
+        if origin == "chat" and self.state.operator_turn(cid) == 1 and self.memory.available:
+            reply += knowme_runtime.maybe_offer_interview(
+                self, len(self.memory.facts(include_sensitive=False))
+            )
+        await self.channel.send(chat_id, reply, markdown=True)
         return result.text
 
     # --------------------------------------------------------------- models & tools
@@ -545,6 +555,8 @@ class Assistant:
         conversation: str = "",
         origin: str = "chat",
     ) -> tuple[str, bool]:
+        if name.startswith("me__"):
+            return await knowme_runtime.call(self, name, args, chat_id, conversation, origin)
         if name == "assistant__switch_model":
             if self.router is None:
                 return "no router configured", True
@@ -789,12 +801,80 @@ class Assistant:
             text = self.switch_model(rest) if rest else "👍 Kept the current model."
             await self.channel.answer_callback(cb.id, "ok")
             await self.channel.edit(cb.chat_id, cb.message_id, text)
+        elif kind == "un":
+            text = await knowme_runtime.on_undo(self, rest)
+            await self.channel.answer_callback(cb.id, "ok")
+            await self.channel.edit(cb.chat_id, cb.message_id, text)
+        elif kind == "fg1":
+            text, buttons = await knowme_runtime.on_forget(self, rest)
+            await self.channel.answer_callback(cb.id, "ok")
+            await self.channel.edit(cb.chat_id, cb.message_id, text, buttons or None)
+        elif kind == "ed":
+            await self.channel.answer_callback(cb.id, "ok")
+            await self.channel.send(cb.chat_id, knowme_runtime.start_edit(self, cb.chat_id, rest))
+        elif kind == "pa":
+            await self.on_save_all(cb, rest)
         elif kind == "fg":
             n = self.state.forget_all()
             await self.channel.answer_callback(cb.id, "forgotten")
             await self.channel.edit(cb.chat_id, cb.message_id, f"🧹 Forgot {n} conversation(s).")
         else:
             await self.channel.answer_callback(cb.id, "unknown")
+
+    def fresh_proposals(self, props: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Drop proposals that repeat a known fact or each other (feature 009, R6)."""
+        from agent_memory.similarity import jaccard
+
+        known = [f.content for f in self.memory.facts()] if self.memory.available else []
+        out: list[dict[str, Any]] = []
+        for p in props:
+            text = str(p.get("content", ""))
+            if any(jaccard(text, k) >= 0.8 for k in known + [str(o["content"]) for o in out]):
+                continue
+            out.append(p)
+        return out[: max(self.config.limits.max_proposals, 1) + 3]
+
+    async def on_save_all(self, cb: Callback, conversation: str) -> None:
+        rows = self.state.proposals_pending(conversation)
+        saved = 0
+        for row in rows:
+            try:
+                res = self.memory.save(row["payload"], conversation)
+            except Exception as exc:  # noqa: BLE001 - e.g. a secret: skip that one
+                self.state.proposal_set(row["id"], "discarded")
+                self.state.audit(
+                    "memory_save",
+                    conversation=conversation,
+                    target=row["payload"]["subject"],
+                    outcome=f"refused: {getattr(exc, 'message', exc.__class__.__name__)}"[:200],
+                )
+                continue
+            self.state.proposal_set(row["id"], "saved")
+            self.state.audit(
+                "memory_save",
+                conversation=conversation,
+                target=row["payload"]["subject"],
+                outcome=str(res.get("outcome")),
+            )
+            saved += 1
+        await self.channel.answer_callback(cb.id, "saved")
+        await self.channel.edit(cb.chat_id, cb.message_id, f"💾 Saved {saved} of {len(rows)}.")
+
+    async def retry_recaps(self, now: datetime) -> None:
+        """Recaps that failed (model unavailable) are retried hourly for a day (R5)."""
+        for key, val in self.state.kv_prefix("recap_pending:").items():
+            first, _, last = val.partition("|")
+            cid = key.split(":", 1)[1]
+            if first < (now - timedelta(hours=24)).isoformat():
+                self.state.kv_del(key)
+                continue
+            if last > (now - timedelta(hours=1)).isoformat():
+                continue
+            conv = self.state.conversation_get(cid)
+            if conv is None:
+                self.state.kv_del(key)
+                continue
+            await self.end_and_propose(int(conv["chat_id"]), cid)
 
     async def on_proposal(self, cb: Callback, rest: str) -> None:
         pid, _, choice = rest.partition(":")
@@ -838,6 +918,7 @@ class Assistant:
 
     async def end_and_propose(self, chat_id: int, conversation: str) -> int:
         props = await self.agent.end_conversation(conversation)
+        props = self.fresh_proposals(props + self.pending_suggestions.pop(conversation, []))
         for p in props:
             pid = new_id("p")
             self.state.proposal_add(pid, conversation, p)
@@ -854,6 +935,12 @@ class Assistant:
                     ("💾 Save", self.signer.sign(f"pr:{pid}:s")),
                     ("🗑 Discard", self.signer.sign(f"pr:{pid}:d")),
                 ],
+            )
+        if len(props) > 1:
+            await self.channel.send(
+                chat_id,
+                f"Or keep all {len(props)} at once:",
+                [("💾 Save all", self.signer.sign(f"pa:{conversation}"))],
             )
         if self.agent.proposal_error:
             await self.channel.send(
@@ -959,6 +1046,7 @@ class Assistant:
         )
 
     async def sweep_idle(self, now: datetime) -> None:
+        await self.retry_recaps(now)
         cutoff = (now - timedelta(minutes=self.config.limits.idle_minutes)).isoformat()
         for conv in self.state.idle_conversations(cutoff):
             if self.turns.get(int(conv["chat_id"])) and not self.turns[int(conv["chat_id"])].done():

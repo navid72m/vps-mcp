@@ -14,7 +14,7 @@ from assistant.config import Config, ToolsetSection
 from assistant.providers import ToolSpec
 
 BUILTIN = "builtin"
-BUILTIN_PREFIXES = ("memory__", "schedule__", "files__", "assistant__", "tools__")
+BUILTIN_PREFIXES = ("memory__", "schedule__", "files__", "assistant__", "tools__", "me__")
 BUILTIN_CORE = (
     "memory__search",
     "memory__get",
@@ -22,6 +22,9 @@ BUILTIN_CORE = (
     "schedule__list",
     "assistant__switch_model",
     "tools__load",
+    "me__remember",
+    "me__forget",
+    "me__interview",
 )
 BUILTIN_SETS: dict[str, ToolsetSection] = {
     "files": ToolsetSection(

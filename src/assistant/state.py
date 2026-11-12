@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS audit (
   server TEXT, tool TEXT, target TEXT, outcome TEXT, tokens_in INTEGER, tokens_out INTEGER,
   cost REAL
 );
+CREATE TABLE IF NOT EXISTS undo (
+  token TEXT PRIMARY KEY, action TEXT, memory_id TEXT, previous_id TEXT,
+  previous_content TEXT, expires TEXT, used INTEGER DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS toolsets_active (
   conversation TEXT, name TEXT, loaded_turn INTEGER, last_used_turn INTEGER, reason TEXT,
   PRIMARY KEY (conversation, name)
@@ -158,6 +162,48 @@ class State:
         if advance:
             self.kv_set(key, str(n))
         return n
+
+    # undo of remembered facts (feature 009)
+    def undo_add(
+        self,
+        action: str,
+        memory_id: str,
+        expires: str,
+        previous_id: str = "",
+        previous_content: str = "",
+    ) -> str:
+        token = new_id("u")
+        self.x(
+            "INSERT INTO undo VALUES (?,?,?,?,?,?,0)",
+            (token, action, memory_id, previous_id, previous_content, expires),
+        )
+        return token
+
+    def undo_take(self, token: str, now: str) -> dict[str, Any] | None:
+        """The undo entry, once: None if unknown, used or expired."""
+        row = self.x("SELECT * FROM undo WHERE token = ?", (token,)).fetchone()
+        if row is None or row["used"] or row["expires"] <= now:
+            return None
+        self.x("UPDATE undo SET used = 1 WHERE token = ?", (token,))
+        return dict(row)
+
+    def kv_json(self, key: str, default: dict[str, Any]) -> dict[str, Any]:
+        raw = self.kv_get(key)
+        try:
+            val = json.loads(raw) if raw else None
+        except ValueError:
+            val = None
+        return {**default, **val} if isinstance(val, dict) else dict(default)
+
+    def kv_set_json(self, key: str, value: dict[str, Any]) -> None:
+        self.kv_set(key, json.dumps(value))
+
+    def kv_del(self, key: str) -> None:
+        self.x("DELETE FROM kv WHERE key = ?", (key,))
+
+    def kv_prefix(self, prefix: str) -> dict[str, str]:
+        rows = self.x("SELECT key, value FROM kv WHERE key LIKE ?", (prefix + "%",)).fetchall()
+        return {str(r["key"]): str(r["value"]) for r in rows}
 
     # loaded toolsets per conversation (feature 008)
     def toolsets_active(self, cid: str) -> dict[str, dict[str, Any]]:
@@ -307,6 +353,12 @@ class State:
         d = dict(row)
         d["payload"] = json.loads(d.pop("payload_json"))
         return d
+
+    def proposals_pending(self, cid: str) -> list[dict[str, Any]]:
+        rows = self.x(
+            "SELECT id FROM proposals WHERE conversation = ? AND status = 'pending'", (cid,)
+        ).fetchall()
+        return [p for p in (self.proposal_get(str(r["id"])) for r in rows) if p]
 
     def proposal_set(self, pid: str, status: str) -> None:
         self.x("UPDATE proposals SET status = ? WHERE id = ?", (status, pid))

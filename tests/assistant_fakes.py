@@ -234,6 +234,8 @@ async def harness(tmp: Path, provider: ScriptedProvider | None = None, **over: A
         approval_poll=0.01,
         coalesce_s=0.0,
     )
+    # the interview offer (feature 009) counts as made: tests compare replies exactly
+    state.kv_set_json("interview", {"last_offered": clock.wall().isoformat()})
     await a.start()
     return Harness(a, tg, prov, clock, log, state)
 

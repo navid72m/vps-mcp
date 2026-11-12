@@ -58,7 +58,7 @@ async def test_memory_guidance_matches_the_assistant(tmp_path: Path) -> None:
     await h.say("hi")
     await h.finish()
     system = p.requests[0].system
-    assert "You cannot save memories yourself" in system and "memory__search" in system
+    assert "call me__remember" in system and "memory__search" in system
     assert "memory_save" not in system
 
 

@@ -224,6 +224,35 @@ def cmd_secrets(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_knowme(args: argparse.Namespace) -> int:
+    """Re-file memories saved before feature 009 (`operator.*`) under `me.<category>.*`."""
+    from assistant import knowme
+    from assistant.memory import AssistantMemory
+
+    cfg = _load(args)
+    mem = AssistantMemory(cfg)
+    if not mem.available:
+        print(f"memory unavailable: {mem.error}", file=sys.stderr)
+        return EXIT_CONFIG
+    legacy = [f for f in mem.facts() if f.subject.startswith("operator.")]
+    if not legacy:
+        print("nothing to migrate")
+        return 0
+    for f in legacy:
+        rest = knowme.slug(f.subject.split(".", 1)[1].replace(".", "-"))
+        new = f"me.{f.category}.{rest}"
+        print(f"{f.subject} -> {new}" + (" (sensitive)" if f.sensitive else ""))
+        if args.apply:
+            tags = [knowme.PROFILE_TAG, f.category, "migrated"]
+            if f.sensitive:
+                tags.append(knowme.SENSITIVE_TAG)
+            mem.save_fact(new, f.title, f.content, tags, f.importance)
+            mem.forget_fact(f.id, f"re-filed as {new}")
+    if not args.apply:
+        print("dry run: add --apply to re-file them")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="assistant", description="Personal assistant runtime")
     p.add_argument("--config", help="assistant.toml (default ~/.config/assistant/assistant.toml)")
@@ -241,6 +270,10 @@ def build_parser() -> argparse.ArgumentParser:
     f = sub.add_parser("forget", help="delete stored conversation history")
     f.add_argument("--all", action="store_true")
     f.set_defaults(func=cmd_forget)
+    k = sub.add_parser("knowme", help="profile maintenance (feature 009)")
+    k.add_argument("action", choices=["migrate"])
+    k.add_argument("--apply", action="store_true", help="write the changes (default: dry run)")
+    k.set_defaults(func=cmd_knowme)
     sub.add_parser("secrets", help="print the commands that store the secrets").set_defaults(
         func=cmd_secrets
     )
