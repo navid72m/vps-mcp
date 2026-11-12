@@ -52,6 +52,7 @@ class FakeTelegram:
     updates: list[dict[str, Any]] = field(default_factory=list)
     sent: list[dict[str, Any]] = field(default_factory=list)
     edited: list[dict[str, Any]] = field(default_factory=list)
+    deleted: list[dict[str, Any]] = field(default_factory=list)
     answered: list[dict[str, Any]] = field(default_factory=list)
     actions: list[dict[str, Any]] = field(default_factory=list)
     calls: list[str] = field(default_factory=list)
@@ -104,6 +105,9 @@ class FakeTelegram:
             return httpx2.Response(200, json={"ok": True, "result": {"message_id": self.next_id}})
         if method == "editMessageText":
             self.edited.append(body)
+            return httpx2.Response(200, json={"ok": True, "result": True})
+        if method == "deleteMessage":
+            self.deleted.append(body)
             return httpx2.Response(200, json={"ok": True, "result": True})
         if method == "answerCallbackQuery":
             self.answered.append(body)

@@ -99,6 +99,78 @@ class InstanceLock:
             self.fd = None
 
 
+class _WaitIndicator:
+    """Refreshes typing status and displays an elapsed-time spinner if a turn takes longer than delay_s."""
+
+    def __init__(
+        self,
+        channel: TelegramChannel,
+        chat_id: int,
+        delay_s: float = 3.5,
+        interval_s: float = 2.5,
+    ) -> None:
+        self.channel = channel
+        self.chat_id = chat_id
+        self.delay_s = delay_s
+        self.interval_s = interval_s
+        self.msg_id: int = 0
+        self.status: str = "Thinking..."
+        self._stopped = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+        self._spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    def set_status(self, status: str) -> None:
+        self.status = status
+
+    async def start(self) -> None:
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
+        last_typing = 0.0
+        spin_idx = 0
+
+        try:
+            while not self._stopped.is_set():
+                now = loop.time()
+                elapsed = int(now - start_time)
+
+                if now - last_typing >= 4.0:
+                    with contextlib.suppress(Exception):
+                        await self.channel.typing(self.chat_id)
+                    last_typing = now
+
+                if (now - start_time) >= self.delay_s:
+                    spin = self._spinners[spin_idx % len(self._spinners)]
+                    spin_idx += 1
+                    text = f"{spin} {self.status} ({elapsed}s)"
+                    try:
+                        if not self.msg_id:
+                            self.msg_id = await self.channel.send(self.chat_id, text)
+                        else:
+                            await self.channel.edit(self.chat_id, self.msg_id, text)
+                    except Exception as exc:
+                        log.debug("failed to update wait indicator: %s", exc)
+
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(self._stopped.wait(), timeout=self.interval_s)
+        except asyncio.CancelledError:
+            pass
+
+    async def stop(self) -> None:
+        self._stopped.set()
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+            self._task = None
+        if self.msg_id:
+            with contextlib.suppress(Exception):
+                await self.channel.delete(self.chat_id, self.msg_id)
+            self.msg_id = 0
+
+
 class Assistant:
     def __init__(
         self,
@@ -157,6 +229,8 @@ class Assistant:
         # facts mentioned without a request to remember: offered at the end of the conversation
         self.pending_suggestions: dict[str, list[dict[str, Any]]] = {}
         self.coalesce_s = coalesce_s
+        self.wait_indicator_delay_s: float = 3.5
+        self.wait_indicator_interval_s: float = 2.5
         self.background: set[asyncio.Task[Any]] = set()
         self.started = self.clock.wall()
         self.sleep = SleepDetector(self.clock)
@@ -309,12 +383,24 @@ class Assistant:
             if not images and not attached and not text:
                 return ""
 
-        async def progress() -> None:
-            await self.channel.typing(chat_id)
+        indicator = _WaitIndicator(
+            self.channel,
+            chat_id,
+            delay_s=self.wait_indicator_delay_s,
+            interval_s=self.wait_indicator_interval_s,
+        )
+        await indicator.start()
+
+        async def progress(status: str = "") -> None:
+            if status:
+                indicator.set_status(status)
+            with contextlib.suppress(Exception):
+                await self.channel.typing(chat_id)
 
         try:
             self.budget.check_day()
         except BudgetExceeded as exc:
+            await indicator.stop()
             await self.channel.send(chat_id, f"⛔ {exc}. Raise the limit or wait until tomorrow.")
             return ""
         try:
@@ -329,9 +415,13 @@ class Assistant:
                 note=note,
             )
         except asyncio.CancelledError:
+            await indicator.stop()
             with contextlib.suppress(Exception):
                 await self.channel.send(chat_id, "⏹ Cancelled.")
             raise
+        finally:
+            await indicator.stop()
+
         reply = result.text
         if origin == "chat" and self.state.operator_turn(cid) == 1 and self.memory.available:
             reply += knowme_runtime.maybe_offer_interview(
