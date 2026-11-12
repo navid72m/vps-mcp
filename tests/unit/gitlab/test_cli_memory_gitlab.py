@@ -98,8 +98,18 @@ async def test_memory_shows_deployed_version_and_activity(
         confirm=True,
         title="Rehearsal failed",
     )
-    outcomes = (mem / "generated" / "outcomes.md").read_text()
-    assert "target addons: deployed aaaaaaaaaaaa (tag:v1.0) succeeded" in outcomes
-    assert "gitlab create_issue addons#3" in outcomes
-    text = create_server(make_gapp(memory=mem)).instructions or ""
-    assert "target addons: deployed aaaaaaaaaaaa" in text
+    from agent_memory import Memory
+
+    found = Memory.open(mem, project="vps-test-vps", environment="test-vps").search(
+        "addons deployed version"
+    )
+    facts = [it for items in found["groups"].values() for it in items]
+    fact = next(it for it in facts if it["subject"] == "deploy.addons.version")
+    assert "deployed aaaaaaaaaaaa (tag:v1.0)" in fact["content"]
+    assert "live_state: verify" in fact["flags"] and fact["source"] == "tool_generated"
+    # updated in place: a second refresh does not add another memory
+    await call(client, "deploy_targets")
+    again = Memory.open(mem, project="vps-test-vps", environment="test-vps").search(
+        "", subject="deploy.addons"
+    )
+    assert again["total"] == 1

@@ -126,15 +126,14 @@ description = "Public API"
 # description = "Run name (the script must read ${RUN_NAME})"
 
 # ------------------------------------------------------------------ agent memory (optional)
-# Persistent memory shared by every MCP client session (specs/004-agent-memory). On by default;
-# the whole section is optional. Notes are Markdown files on this machine, never on the VPS.
+# Shared, managed memory (agent-memory, specs/006-agent-memory-service). On by default; the
+# whole section is optional. The store is shared with every agent that runs `agent-memory serve`.
 # [memory]
 # enabled = true
-# path = "~/.config/vps-mcp/myvps.memory"   # default: next to this file, <file stem>.memory
-# writable = true              # false: assistants can read memory but not write/archive notes
-# briefing_chars = 6000        # size of the briefing sent when a session connects (~1,500 words)
-# max_note_bytes = 8192
-# max_notes = 500
+# store = "~/.local/share/agent-memory"   # default: $AGENT_MEMORY_HOME or ~/.local/share/agent-memory
+# project = "vps-myvps"                     # default: vps-<vps name>
+# writable = true              # false: agents can search/read memory but not save or change it
+# pinned_chars = 2000          # size of the pinned core sent when a session connects (~500 tokens)
 
 # ------------------------------------------------------------------ GitLab (optional)
 # Read code/issues/CI of allowlisted projects and deploy reviewed versions to the VPS

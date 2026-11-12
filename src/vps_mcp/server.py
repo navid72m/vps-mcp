@@ -18,6 +18,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field
 
+from agent_memory.errors import AgentMemoryError
 from vps_mcp.config.loader import load_config
 from vps_mcp.config.policy import AppConfig
 from vps_mcp.core import actions, changes, deploy, queries, removal
@@ -117,7 +118,7 @@ def _tool_wrapper(
         async def wrapper(*args: Any, **kwargs: Any) -> CallToolResult:
             try:
                 payload = await fn(*args, **kwargs)
-            except VpsMcpError as err:
+            except (VpsMcpError, AgentMemoryError) as err:
                 return _result(err.to_envelope(), is_error=True, secrets=app.secret_strings)
             except Exception as exc:  # noqa: BLE001
                 log.exception("unhandled error in tool %s", fn.__name__)
@@ -541,10 +542,10 @@ def build_context(
         app.gitlab = build_runtime(
             app, config.gitlab, transport=gitlab_transport, keychain_reader=keychain_reader
         )
-    if config.memory.enabled and config.memory.path:
-        from vps_mcp.memory.service import MemoryService
+    if config.memory.enabled and config.memory.store:
+        from vps_mcp.memory.service import MemoryAdapter
 
-        app.memory = MemoryService(config, db, app.audit, config.secret_strings)
+        app.memory = MemoryAdapter(config, db)
     return app
 
 

@@ -95,16 +95,15 @@ The names are placeholders; use your own:
 | "How's the rehearsal job doing?" / "Which step is it on and how long has it been running?" / "Show the final report and verdict." | `job_status` |
 | "Cancel the running job." | `cancel_job` |
 
-## 8. Memory (shared across sessions and clients)
+## 8. Memory (shared across sessions, clients and projects)
 
 | You say | Tool |
 |---|---|
-| "What do you know about this server?" / "Brief me." Most clients get this automatically when they connect; this tool returns a larger version. | `memory_briefing` |
-| "Search the memory for stock valuation." / "List the open issues we recorded." / "Notes tagged pipeline." | `memory_search` |
-| "Read the deploy-v19-pipeline note." / "What links to the er-pipeline note?" | `memory_read` |
-| "Remember as a decision: promote only when the verdict is safe_to_promote." / "Save what we learned today." / "Mark the flaky-deploy issue as done." | `memory_write` |
+| "What do we know about upgrading the database?" / "Search memory for stock valuation." / "Any open issues recorded?" | `memory_search` |
+| "Show where the postgres.version fact came from." / "What did this decision replace?" | `memory_get` |
+| "Remember as a decision: promote only when the verdict is safe_to_promote; we rejected promoting on warnings." / "Save what we learned today as a lesson." / "Record that production runs PostgreSQL 17." | `memory_save` |
+| "PostgreSQL was upgraded to 17, update that fact." / "That fact was wrong, invalidate it." / "Mark the flaky-deploy issue as done." / "Pin the backup procedure." | `memory_update` |
 | "Forget the note about the old staging server." Previewed, then archived. | `memory_archive` |
-| "Is the memory folder healthy? Any broken notes?" / "How big is the briefing?" | `memory_health` |
 
 ## 9. GitLab: reading code and history
 
@@ -158,7 +157,7 @@ The assistant uses `list_services`, then `get_resource_usage`, then `job_status`
 > and remember the main blocker as an open issue."
 
 The assistant runs `db_compare` and `get_report`. With your OK it calls `gitlab_write` (`create_issue`), then
-`memory_write` (type `issue`).
+`memory_save` (type `episodic`, state `open`).
 
 **Ship a fix**
 > "What changed in addons since the version that's deployed? Did CI pass? Then deploy it and tell me if odoo comes
@@ -171,25 +170,25 @@ first the plan, then the deploy after you confirm. It finishes with `get_service
 > "odoo is slow and throwing errors. Find out why, restart it if needed, and write down what you found."
 
 The assistant checks `get_service_status`, `get_service_logs` and `get_resource_usage`. If needed it calls
-`restart_service` (after you confirm), then records what it found with `memory_write` (type `lesson`).
+`restart_service` (after you confirm), then records what it found with `memory_save` (type `episodic`).
 
 **Full rehearsal overnight**
 > "Plan a full rehearsal, start it after I confirm, and tomorrow give me the verdict."
 
 The assistant uses `run_job` twice (plan, then start). The next day, in any client, it uses `job_status`. The
-briefing already shows the latest outcome.
+job's latest outcome is also a memory fact.
 
 **New session, different client**
 > "Where are we with the migration?"
 
-The assistant answers from the connect-time briefing (environment, latest verdicts, open issues and decisions).
-It uses `memory_search` and `memory_read` for detail, without you re-explaining anything.
+The assistant gets the pinned core at connect (key procedures, decisions and open issues), then uses
+`memory_search` and `memory_get` for the rest: latest verdicts, deploys, lessons. You don't re-explain anything.
 
 ---
 
 ## Tool index
 
-54 tools in total. Some are present only when the matching section is configured: migration, jobs and GitLab are
+53 tools in total. Some are present only when the matching section is configured: migration, jobs and GitLab are
 optional, and memory is on by default.
 
 | Area | Tools |
@@ -202,7 +201,7 @@ optional, and memory is on by default.
 | Migration: rehearse | `rehearse`, `rehearsal_status`, `cancel_rehearsal` |
 | Migration: your runs, checks, cleanup | `pipeline_last_run`, `run_check`, `drop_copies` |
 | Declared jobs | `list_jobs`, `run_job`, `job_status`, `cancel_job` |
-| Memory | `memory_briefing`, `memory_search`, `memory_read`, `memory_write`, `memory_archive`, `memory_health` |
+| Memory | `memory_search`, `memory_get`, `memory_save`, `memory_update`, `memory_archive` |
 | GitLab: read | `gitlab_projects`, `gitlab_refs`, `gitlab_tree`, `gitlab_file`, `gitlab_commits`, `gitlab_compare` |
 | GitLab: issues and MRs | `gitlab_list_items`, `gitlab_read_item`, `gitlab_write` |
 | GitLab: CI | `gitlab_pipelines`, `gitlab_job_log`, `gitlab_ci` |

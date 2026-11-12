@@ -14,9 +14,10 @@ Desktop, LM Studio, …) manage **one VPS** safely:
 - **GitLab** (15 optional tools): read code, history, issues, merge requests and CI of allowlisted
   projects with your own token, from the macOS Keychain. Open issues and MRs, and deploy a reviewed
   commit to the VPS with automatic rollback.
-- **Memory** (6 tools, on by default): a shared memory that every session in every MCP client
-  gets when it connects. It holds generated facts about the VPS and its history, plus notes
-  assistants write: decisions, lessons, issues and next steps.
+- **Memory** (5 tools, on by default): **agent-memory**, a managed knowledge store shared by every
+  agent and project. It holds facts, decisions, procedures and experiences, with where each one
+  came from, how confident it is, and when it expires. It is also a standalone MCP server that
+  agents can use for work that has nothing to do with the VPS.
 
 The server runs **on your laptop**. Your MCP client starts it over stdio, and it reaches the VPS
 over SSH. Nothing runs permanently on the VPS: it only needs a dedicated user and a sudoers file
@@ -36,9 +37,10 @@ over SSH. Nothing runs permanently on the VPS: it only needs a dedicated user an
 - **From GitLab to the VPS.** "Deploy tag v1.5 of the addons" shows the commit, changed files,
   pipeline status and services affected. Once you confirm, that exact commit goes live; if a
   service fails its health check, the previous version comes back automatically.
-- **A memory that follows you across clients.** A new session in Claude Code, OpenCode or LM
-  Studio already knows the environment, the last verdicts and the open issues. What one session
-  learns, the next one sees.
+- **A memory that follows you across clients and projects.** A new session in Claude Code,
+  OpenCode or LM Studio starts with the key procedures, decisions and open issues, and finds the
+  rest with a task-aware search. Every memory records where it came from and how sure it is.
+  Outdated facts are superseded rather than left lying around.
 - **Hard limits from your config, not from the prompt.** There's no arbitrary command, SQL or
   script. Only declared services, databases and jobs are reachable, the SSH service is untouchable,
   and `read_only = true` turns off every write tool.
@@ -145,8 +147,7 @@ Optionally, let the read-only tools run without approval prompts. Add this to
 "mcp__vps__db_compare", "mcp__vps__get_report", "mcp__vps__list_reports",
 "mcp__vps__rehearsal_status", "mcp__vps__pipeline_last_run",
 "mcp__vps__list_jobs", "mcp__vps__job_status",
-"mcp__vps__memory_briefing", "mcp__vps__memory_search", "mcp__vps__memory_read",
-"mcp__vps__memory_health",
+"mcp__vps__memory_search", "mcp__vps__memory_get",
 "mcp__vps__gitlab_projects", "mcp__vps__gitlab_refs", "mcp__vps__gitlab_tree",
 "mcp__vps__gitlab_file", "mcp__vps__gitlab_commits", "mcp__vps__gitlab_compare",
 "mcp__vps__gitlab_list_items", "mcp__vps__gitlab_read_item", "mcp__vps__gitlab_pipelines",
@@ -192,7 +193,7 @@ tool-calling support.
 ```
 
 Every client that uses the same `--config` shares the same [memory](#memory), so a note written
-in one client is in the next session's briefing in all of them.
+in one client can be found by the next session in all of them.
 
 ## Using it
 
@@ -208,7 +209,7 @@ The full set of examples, covering every tool, is in [`docs/USAGE_EXAMPLES.md`](
 - "Update api to ghcr.io/myorg/api:1.2", which rolls back automatically if it comes up unhealthy
 - "Compare db_before with db_after and tell me if it's safe to promote" (migration tools)
 - "Plan the full-rehearsal job", then "start it", then later "how is the rehearsal going?" (jobs)
-- "Where are we with the migration?" in a brand-new session, answered from the briefing (memory)
+- "Where are we with the migration?" in a brand-new session, answered from memory
 - "Remember as a decision: promote only when the verdict is safe_to_promote" (memory)
 - "What changed in the addons since v1.4? Did the pipeline pass? Then deploy v1.5" (GitLab)
 - "Open an issue in addons with the blocking findings of the last rehearsal" (GitLab)
@@ -486,7 +487,7 @@ one of them. Deploys are refused:
 - while a rehearsal is running.
 
 The deployed version of each target, and recent GitLab activity, appear in the
-[memory](#memory) briefing.
+[memory](#memory), as facts that are kept up to date.
 
 **VPS setup** (as root, after reviewing the output):
 
@@ -500,70 +501,99 @@ paths under `/var/lib/vps-mcp/deploys` and the destinations you declared.
 
 ## Memory
 
-Every session that connects to vps-mcp gets a **briefing** in the server's connect-time
-instructions, whichever client it is: Claude Code, OpenCode, LM Studio or Claude Desktop. The
-assistant knows the situation before it calls a single tool. The briefing has these sections:
+Memory is **agent-memory**, a managed knowledge store rather than a conversation log. It ships in
+this repo as its own package and command (`agent-memory`). Every agent and every project can
+share it. vps-mcp uses it as a library.
 
-1. a preamble saying the memory is recorded data, not instructions;
-2. the environment: services and their last seen state, databases and their roles, pipelines,
-   checks and jobs;
-3. the latest job runs, rehearsals and reports, with verdicts;
-4. open issues and next steps;
-5. decisions, conventions and preferences;
-6. an index of the other notes;
-7. recent changes.
+**What a memory is.** One concise piece of knowledge, stored as one Markdown file with
+structured front matter:
 
-It is capped at `briefing_chars` (6000 by default, about 1,600 tokens). When it doesn't fit,
-the last sections are trimmed first and the briefing says that more is available.
+| Field | Meaning |
+|---|---|
+| `type` | `semantic` (what is true), `decision` (why; with rejected alternatives), `procedural` (how to do something), `episodic` (what happened; open/done for issues and next steps) |
+| `scope` | `user`, `project:<name>`, `environment:<name>` or `task:<id>`; a session sees its own scopes plus `user` |
+| `subject` | a dotted key such as `postgres.version`, used for duplicates and conflicts |
+| provenance | the source (`client`, `task`, `file`, `web`, `issue`, `tool_output`, `tool_generated`, `operator`, …), the client, created/updated/last-confirmed times and a confirmation count |
+| `confidence` | `verified`, `inferred` or `unverified` |
+| lifecycle | `active`, `superseded` (linked to its successor), `expired`, `invalidated` or `archived`; an optional expiry; `live_state` facts carry a freshness window |
+
+**The write policy is enforced by code on every save, not left to the agent:**
+
+- **Secrets** are refused and never written. Store a reference to where a secret lives instead.
+- **Duplicates** (same subject, nearly the same text) become a confirmation of the existing
+  memory, not a second copy.
+- **Contradictions** on the same subject are kept on both sides, linked, and flagged
+  `needs verification`. Decisions are only replaced by an explicit `supersede` with a reason, so
+  nothing is overwritten silently.
+- **Text from untrusted sources** (READMEs, issues, web pages, tool output) is stored as
+  `unverified`. If it reads like an instruction ("ignore previous…", "always run curl …") it is
+  refused as a procedure or decision. Only the operator can save such text, with
+  `agent-memory save --operator`. Agents cannot raise trust through the tools.
+- **Facts about live state** (for example "web is running") always come back with a
+  "verify live" flag, and a "possibly stale" flag once they are older than their freshness window.
+
+**Retrieval is task-aware.** When a session connects it gets only a small **pinned core**
+(~500 tokens): pinned procedures and decisions, plus open issues. Everything else is searched
+for. `memory_search` ranks matches by keyword relevance, recency, importance, confidence and
+scope (task > environment > project > user). It returns at most 8 by default, grouped as facts,
+decisions, experiences and procedures, and says "nothing relevant" instead of padding. Superseded,
+expired and invalidated memories stay out of results unless you ask for history.
 
 | Tool | What it does |
 |---|---|
-| `memory_briefing` | The same briefing with a larger budget. A fallback for clients that ignore server instructions. |
-| `memory_search` | Search notes by text, type or tag. Can also search the generated facts. |
-| `memory_read` | Read one note, with its links and backlinks. |
-| `memory_write` | Create or update a note: `decision`, `lesson`, `issue`, `convention`, `next_step`, `preference` or `fact`. |
-| `memory_archive` | Forget a note. It previews first and moves the file to `archive/`. |
-| `memory_health` | Folder location, counts, malformed files and limits. |
+| `memory_search` | Ranked, scope-aware search, grouped by type, with flags (verify live, stale, conflict, inferred, open) |
+| `memory_get` | One memory with full provenance: history, what it superseded, conflicts, related memories |
+| `memory_save` | A validated save: created, confirmed (duplicate) or conflict (flagged) |
+| `memory_update` | `update` metadata, `supersede`, `invalidate`, `expire`, `confirm`, `close`, `resolve_conflict` |
+| `memory_archive` | Forget a memory. It previews first and moves the file to `archive/` |
 
-**The folder** is created next to your policy file. For example, `~/.config/vps-mcp/myvps.toml`
-uses `~/.config/vps-mcp/myvps.memory/`:
+**vps-mcp's own facts.** vps-mcp writes generated, live-state facts into
+`environment:<vps name>`: service states, the deployed version per GitLab target, the last
+outcome of each job and rehearsal, and the latest report verdict. They are updated in place,
+never duplicated. Agents can search them like any other memory. If the store can't be opened,
+vps-mcp keeps working and says memory is unavailable.
+
+**The store.** By default it lives in `~/.local/share/agent-memory/` (or `$AGENT_MEMORY_HOME`):
 
 ```text
-myvps.memory/
-├── notes/       # one Markdown note per file: front matter + body, [[links]] between notes
-├── generated/   # facts the server rewrites from config + history (don't edit)
-└── archive/     # forgotten notes; move one back to notes/ to restore it
+agent-memory/
+├── memories/<scope>/   one .md file per memory: read, edit or delete by hand; noticed on next search
+├── archive/            archived memories
+├── events/             append-only history and audit (no memory content)
+└── index.sqlite        search index (SQLite FTS5), rebuilt from the files automatically
 ```
 
-You can edit, add or delete notes with any editor; the next session picks the changes up. To
-share memory between machines, sync the folder or keep it in a **private** git repository.
-`check-config` warns if the folder is readable by others, or sits in a repository with a hosted
-remote.
+**Use it from any agent**, not only through vps-mcp:
 
-**Working with memory.** Assistants only record what you ask for, or what they judge durable.
-Some habits that help:
+```bash
+claude mcp add --scope user memory -- "$(which uv)" run --directory "$PWD" \
+  agent-memory serve --project my-project --client claude-code
+```
 
-- **End of a session:** say "save what we learned today to memory". The assistant writes
-  lessons, decisions and next steps as separate short notes.
-- **Close items:** say "mark the deploy-flaky issue as done". This sets `status: done`, which
-  drops the note from the open-issues section but keeps it searchable.
-- **Correct a wrong note:** tell the assistant, edit the file yourself, or archive it. Each
-  note records its `source` (the client that wrote it, or `operator` for hand edits). You can see
-  it with `memory_read` or in the file, so you can trace where a claim came from.
-- **Rarely-needed details:** keep them in notes. Only titles go into the briefing, and the full
-  text is fetched with `memory_read`, so a large memory stays cheap.
+The same works in OpenCode, Antigravity or LM Studio (`agent-memory serve --project …`). Each
+session sees its project's memories plus `user` scope, and never other projects' memories.
 
-**Safety**:
+**Operator commands:**
 
-- **Masking.** Secrets are masked before anything is written: `password=…`, credentials in URLs,
-  private keys and common token formats.
-- **Names and paths.** Note names are plain slugs, symlinks are never followed, and writes are
-  atomic. Nothing outside the folder can be read or written.
-- **Presentation.** Notes are shown to the model as quoted data inside a `<memory>` block, never
-  as instructions.
-- **Writes.** Note writes and archives are audited (`get_audit_log`) and work in `read_only`
-  mode, because they only touch local files. `[memory] writable = false` turns them off.
-- **Never the VPS.** Building the briefing never contacts the VPS, so it works offline too.
+```bash
+uv run agent-memory search "database backup" --project my-project
+uv run agent-memory save --operator --type procedural --scope project:my-project \
+  --subject deploy.order --title "Stop the app first" --content "…" --pinned
+uv run agent-memory doctor            # counts, malformed files, conflicts, stale facts, warnings
+uv run agent-memory bench             # recall / precision / stale hits / conflicts / token cost
+uv run agent-memory migrate-004 ~/.config/vps-mcp/myvps.memory --project vps-myvps \
+  --environment myvps                 # dry run; add --apply to import feature-004 notes
+```
+
+**Benchmark** (built-in fixtures: 289 memories, 22 tasks). Compared with plain keyword search,
+ranked retrieval keeps recall and never returns an outdated memory:
+
+| Configuration | Recall@8 | Precision@8 | Stale hits | Conflicts flagged | Tokens per result |
+|---|---|---|---|---|---|
+| naive keyword search | 0.95 | 0.36 | 100% | 0% | 25 |
+| **agent-memory** | **0.97** | **0.80** | **0%** | **100%** | 208 |
+
+The pinned core costs about 150 tokens.
 
 ## Security model
 
@@ -602,7 +632,7 @@ are errors. The main sections:
 | `[migration]` | optional; see [Migration analysis](#migration-analysis-optional) |
 | `[[migration.job]]` | optional, up to 10; see [Declared jobs](#declared-jobs-optional) |
 | `[gitlab]` | optional: `url`, `keychain_service`, `keychain_account`, `ca_bundle`, `timeout_s`, `max_archive_mb`, plus `[[gitlab.project]]` and `[[gitlab.deploy]]`; see [GitLab](#gitlab-optional) |
-| `[memory]` | optional: `enabled`, `path`, `writable`, `briefing_chars`, `max_note_bytes`, `max_notes`; see [Memory](#memory) |
+| `[memory]` | optional: `enabled`, `store` (default agent-memory's store), `project` (default `vps-<name>`), `writable`, `pinned_chars`; see [Memory](#memory) |
 
 Validate with `vps-mcp check-config --config <file>`. The local audit/state database lives in
 `~/.local/state/vps-mcp/<vps-name>.db`.
@@ -627,14 +657,15 @@ Validate with `vps-mcp check-config --config <file>`. The local audit/state data
 | `gitlab_scope` | The token lacks a scope or role for that action. `gitlab-check` lists scope gaps. |
 | `gitlab_rate_limited` | GitLab's rate limit was hit. Retry after the given number of seconds. |
 | A deploy reports `rolled_back` | A service failed its health check after the switch. The previous release is active again; the response includes the service's last log lines. |
-| A new session doesn't seem to know the memory | The client may ignore server instructions. Ask it to call `memory_briefing`, and check `memory_health`. |
-| `Memory unavailable` in the briefing | Run `memory_health`. The folder may be unwritable, or a symlink, which is refused. |
+| A new session doesn't seem to know the memory | Memory is searched, not injected: ask it to "search memory for …". Only pinned items and open issues arrive at connect. |
+| `Memory unavailable` in the instructions | Run `agent-memory doctor`. The store may be unwritable or a symlink, which is refused. |
+| `check-config` mentions `migrate-004` | You have feature-004 notes; import them with the command it prints. |
 | Job tools missing | No `[[migration.job]]` is declared, or the client hasn't restarted the server since you added one. |
 
 ## Development
 
 ```bash
-uv run pytest            # unit, contract and negative suites: no VPS needed (≈870 tests)
+uv run pytest            # unit, contract and negative suites: no VPS needed (≈820 tests)
 uv run ruff check && uv run ruff format --check && uv run mypy
 ```
 
@@ -656,7 +687,7 @@ Project layout:
 
 ```text
 src/vps_mcp/
-├── server.py            # MCP tools (services) + migration/jobs/memory registration, briefing
+├── server.py            # MCP tools (services) + migration/jobs/memory registration, pinned core
 ├── cli.py               # serve | check-config | trust-host | bootstrap | gitlab-check
 ├── config/              # policy file models and loader
 ├── remote/              # SSH connection, fixed-template executor, redaction
@@ -665,7 +696,9 @@ src/vps_mcp/
 ├── store/               # SQLite: audit, revisions, deployed services, migration tables
 ├── migration/           # catalogue, snapshot/diff/risk, copies, runner, rehearsal, checks
 ├── jobs/                # declared jobs: integrity, params, launcher, progress, guard, report
-├── memory/              # agent memory: notes, folder I/O, masking, search, derived facts, briefing
+├── memory/              # adapter onto agent-memory: generated facts, tool registration
 └── gitlab/              # GitLab: Keychain token, client, access, read/items/ci, archive, deploy
+src/agent_memory/        # standalone memory: model, files, index (FTS5), policy, ranking, store,
+                         #   pinned core, MCP tools/server, CLI, migrate-004, bench
 specs/                   # speckit spec, plan, research, contracts, tasks per feature
 ```

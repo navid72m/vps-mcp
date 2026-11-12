@@ -60,6 +60,22 @@ def resolve_memory_path(config_path: Path, configured: str | None) -> Path:
     return path
 
 
+def resolve_store(configured: str | None) -> Path:
+    from agent_memory.files import default_store
+
+    path = Path(configured).expanduser() if configured else default_store()
+    path = path.absolute().resolve()
+    source_root = Path(__file__).resolve().parent.parent.parent
+    if path == source_root or source_root in path.parents:
+        raise ValueError(f"store must not be inside the vps-mcp source tree ({source_root})")
+    return path
+
+
+def legacy_memory_folder(config_path: Path) -> Path:
+    cp = config_path.expanduser().absolute()
+    return cp.parent / f"{cp.stem}.memory"
+
+
 def load_config(path: str | Path) -> AppConfig:
     p = Path(path).expanduser()
     try:
@@ -75,9 +91,11 @@ def load_config(path: str | Path) -> AppConfig:
         raise ConfigError(_format(exc)) from None
 
     try:
-        cfg.memory.path = str(resolve_memory_path(p, cfg.memory.path))
+        if cfg.memory.path:
+            cfg.memory.path = str(resolve_memory_path(p, cfg.memory.path))
+        cfg.memory.store = str(resolve_store(cfg.memory.store))
     except ValueError as exc:
-        raise ConfigError([f"memory.path: {exc}"]) from None
+        raise ConfigError([f"memory: {exc}"]) from None
 
     vps = cfg.vps
     vps.known_hosts_path = str(Path(vps.known_hosts_path).expanduser())

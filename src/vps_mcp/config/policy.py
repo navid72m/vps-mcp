@@ -152,14 +152,14 @@ def unit_base(unit: str) -> str:
 
 
 class MemorySettings(_Strict):
-    """Agent memory (specs/004-agent-memory, contracts/memory-config.md)."""
+    """Shared agent memory (specs/006-agent-memory-service)."""
 
     enabled: bool = True
-    path: str | None = None  # resolved by the loader; default <config dir>/<config stem>.memory
-    writable: bool = True
-    briefing_chars: int = Field(default=6000, ge=1000, le=20000)
-    max_note_bytes: int = Field(default=8192, ge=512, le=65536)
-    max_notes: int = Field(default=500, ge=10, le=5000)
+    store: str | None = None  # resolved by the loader; default: agent-memory's default store
+    project: str | None = None  # default: vps-<vps name>
+    writable: bool = True  # false: agents may search/read but not save, update or archive
+    pinned_chars: int = Field(default=2000, ge=500, le=20000)
+    path: str | None = None  # feature-004 folder; only used to suggest `agent-memory migrate-004`
 
 
 class AppConfig(_Strict):

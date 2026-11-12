@@ -21,6 +21,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 @pytest.fixture(autouse=True)
+def isolated_memory_store(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never let a test touch the real agent-memory store."""
+    monkeypatch.setenv("AGENT_MEMORY_HOME", str(tmp_path_factory.mktemp("agent-memory")))
+
+
+@pytest.fixture(autouse=True)
 def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(common, "POLL_INTERVAL", 0)
     monkeypatch.setattr(common, "SETTLE_DELAY", 0)

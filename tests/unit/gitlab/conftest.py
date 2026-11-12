@@ -49,7 +49,7 @@ def gl_config(read_only: bool = False, memory: Path | None = None, **over: Any) 
     d = config_dict(**({"read_only": True} if read_only else {}))
     d["gitlab"] = gitlab_section(**over)
     if memory is not None:
-        d["memory"] = {"path": str(memory)}
+        d["memory"] = {"store": str(memory)}
     return AppConfig.model_validate(d)
 
 

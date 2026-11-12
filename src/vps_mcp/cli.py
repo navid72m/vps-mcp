@@ -94,9 +94,20 @@ def _cmd_check_config(args: argparse.Namespace) -> int:
         f"OK: vps '{cfg.vps.name}' ({cfg.vps.host}), {len(cfg.service)} declared service(s), "
         f"read_only={cfg.policy.read_only}"
     )
-    if cfg.memory.enabled and cfg.memory.path:
-        for line in memory_report(Path(cfg.memory.path)):
+    if cfg.memory.enabled and cfg.memory.store:
+        for line in memory_report(Path(cfg.memory.store)):
             print(line)
+        from vps_mcp.config.loader import legacy_memory_folder
+
+        legacy = (
+            Path(cfg.memory.path) if cfg.memory.path else legacy_memory_folder(Path(args.config))
+        )
+        if (legacy / "notes").is_dir() and any((legacy / "notes").glob("*.md")):
+            print(
+                f"NOTE feature-004 memory notes found in {legacy}; import them with: "
+                f"agent-memory migrate-004 {legacy} --project vps-{cfg.vps.name} "
+                f"--environment {cfg.vps.name} --apply"
+            )
     else:
         print("memory: disabled")
     return 0
@@ -111,9 +122,8 @@ def memory_report(path: Path) -> list[str]:
 
     home = str(Path.home())
     shown = "~" + str(path)[len(home) :] if str(path).startswith(home + "/") else str(path)
-    notes = path / "notes"
-    count = sum(1 for _ in notes.glob("*.md")) if notes.is_dir() else 0
-    out = [f"memory: {shown} ({count} notes)" if path.exists() else f"memory: {shown} (new)"]
+    count = sum(1 for _ in (path / "memories").rglob("*.md")) if (path / "memories").is_dir() else 0
+    out = [f"memory: {shown} ({count} memories)" if path.exists() else f"memory: {shown} (new)"]
     if path.exists() and path.stat().st_mode & 0o077:
         out.append(f"WARNING memory folder {shown} is readable by other users; chmod 700 it")
     probe = path if path.exists() else path.parent
