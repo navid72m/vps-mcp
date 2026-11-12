@@ -22,7 +22,7 @@ GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 SCOPES = [CALENDAR_SCOPE, GMAIL_SCOPE]
 TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-REDIRECT_URI = "urn:ietf:wg:oauth:2.0:oob"
+REDIRECT_URI = "http://localhost"
 
 
 class GoogleAuthError(Exception):

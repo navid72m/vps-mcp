@@ -237,7 +237,12 @@ def cmd_secrets(args: argparse.Namespace) -> int:
 
 
 def cmd_google_auth(args: argparse.Namespace) -> int:
+    import http.server
     import subprocess
+    import time
+    import urllib.parse
+    import webbrowser
+    from typing import Any
 
     from assistant import google_auth
     from assistant.secrets import provider_for
@@ -274,17 +279,83 @@ def cmd_google_auth(args: argparse.Namespace) -> int:
         )
         return EXIT_CONFIG
 
-    url = google_auth.make_auth_url(client_id)
-    print("\n1. Open this URL in your browser:\n")
+    class _OAuthServer(http.server.HTTPServer):
+        auth_code: str | None = None
+        auth_error: str | None = None
+
+    class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
+        server: _OAuthServer
+
+        def do_GET(self) -> None:
+            parsed = urllib.parse.urlsplit(self.path)
+            qs = urllib.parse.parse_qs(parsed.query)
+            if "code" in qs:
+                self.server.auth_code = qs["code"][0]
+                html = (
+                    "<!DOCTYPE html><html><head><title>Authorization Successful</title>"
+                    "<style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; "
+                    "display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f8f9fa; color: #202124; }"
+                    ".card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; max-width: 440px; }"
+                    "h1 { color: #1e8e3e; font-size: 24px; margin-bottom: 12px; }"
+                    "p { color: #5f6368; line-height: 1.5; }</style></head>"
+                    "<body><div class='card'>"
+                    "<h1>✓ Authorization Successful</h1>"
+                    "<p>Google Calendar and Gmail access granted. You can close this browser tab and return to your terminal.</p>"
+                    "</div></body></html>"
+                )
+            else:
+                self.server.auth_error = qs.get("error", ["authorization_denied"])[0]
+                html = f"<!DOCTYPE html><html><body><h1>Authorization Failed</h1><p>{self.server.auth_error}</p></body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(html.encode("utf-8"))
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    server = _OAuthServer(("127.0.0.1", 0), _OAuthCallbackHandler)
+    server.timeout = 1.0
+    port = server.server_address[1]
+    redirect_uri = f"http://localhost:{port}/"
+    url = google_auth.make_auth_url(client_id, redirect_uri=redirect_uri)
+
+    print("\n1. Opening your browser to authorize with Google...")
     print(f"   {url}\n")
-    print(
-        "2. Sign in with your Google account, approve Calendar and Gmail permissions, and copy the code.\n"
-    )
+    with contextlib.suppress(Exception):
+        webbrowser.open(url)
+
+    print("2. Sign in with your Google account, grant Calendar & Gmail permissions.")
+    print("   Waiting for browser callback (or press Ctrl+C to paste code manually)...")
+
+    code = ""
+    start = time.time()
     try:
-        code = input("3. Paste the authorization code here: ").strip()
-    except (KeyboardInterrupt, EOFError):
-        print("\nAborted.")
-        return 1
+        while not server.auth_code and not server.auth_error and (time.time() - start < 180.0):
+            server.handle_request()
+        if server.auth_code:
+            code = server.auth_code
+            print("\n✓ Authorization code received from browser callback!")
+        elif server.auth_error:
+            print(f"\nError from Google: {server.auth_error}", file=sys.stderr)
+            server.server_close()
+            return EXIT_CONFIG
+    except KeyboardInterrupt:
+        print("\n\nBrowser wait canceled by user.")
+    finally:
+        server.server_close()
+
+    if not code:
+        try:
+            raw = input("Paste the authorization code or redirected URL here: ").strip()
+            if "?" in raw and "code=" in raw:
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(raw).query)
+                code = qs.get("code", [""])[0]
+            else:
+                code = raw
+        except (KeyboardInterrupt, EOFError):
+            print("\nAborted.")
+            return 1
 
     if not code:
         print("Error: empty authorization code.", file=sys.stderr)
@@ -292,7 +363,11 @@ def cmd_google_auth(args: argparse.Namespace) -> int:
 
     print("\nExchanging code for refresh token...")
     try:
-        refresh_token = asyncio.run(google_auth.exchange_auth_code(client_id, client_secret, code))
+        refresh_token = asyncio.run(
+            google_auth.exchange_auth_code(
+                client_id, client_secret, code, redirect_uri=redirect_uri
+            )
+        )
     except Exception as exc:
         print(f"Error exchanging code: {exc}", file=sys.stderr)
         return EXIT_CONFIG
