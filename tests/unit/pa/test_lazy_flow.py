@@ -133,20 +133,23 @@ async def test_never_tool_is_never_offered_or_run(tmp_path: Path) -> None:
     assert not toolset_audit(h)
 
 
-async def test_idle_toolsets_unload_and_new_resets(tmp_path: Path) -> None:
-    p = ScriptedProvider([say(str(i)) for i in range(10)])
-    h = await lazy(tmp_path, p, idle_turns=2)
-    await h.say("restart it")
+async def test_unused_toolset_goes_after_two_messages(tmp_path: Path) -> None:
+    """The live test on 2026-11-12: a matched but unused toolset rode along for 4 off-topic
+    messages (about 53 s each on a local model instead of about 21 s)."""
+    p = ScriptedProvider([say(str(i)) for i in range(6)])
+    h = await lazy(tmp_path, p)
+    await h.say("please restart the worker")
     await h.finish()
     await h.say("/tools")
-    assert "▶️ ops-admin (3): auto: restart · this turn" in h.tg.texts()[-1]
-    # the last two messages count too (follow-ups), so it stays loaded a little longer
-    for msg in ("thanks", "ok", "fine", "cool"):
-        await h.say(msg)
-        await h.finish()
+    assert "▶️ ops-admin (3): auto: restart · this turn · not used yet" in h.tg.texts()[-1]
+    await h.say("tell me about consciousness research")  # earlier words don't keep it alive
+    await h.finish()
+    assert "ops__restart" in names(p.requests[-1])
+    await h.say("and his website?")
+    await h.finish()
     assert "ops__restart" not in names(p.requests[-1])
-    assert toolset_audit(h)[-1] == "ops-admin unloaded: idle"
-    await h.say("restart again")
+    assert toolset_audit(h)[-1] == "ops-admin unloaded: not used"
+    await h.say("restart again")  # matched by this message: back at once
     await h.finish()
     assert "ops__restart" in names(p.requests[-1])
     await h.say("/new")
@@ -156,7 +159,24 @@ async def test_idle_toolsets_unload_and_new_resets(tmp_path: Path) -> None:
     await h.say("/tools")
     tools_text = h.tg.texts()[-1]
     assert "▶️" not in tools_text and "ops-admin (3)" in tools_text.split("Not loaded: ")[1]
-    assert "core" in tools_text.lower()
+
+
+async def test_used_toolset_stays_until_idle(tmp_path: Path) -> None:
+    p = ScriptedProvider(
+        [use("ops__kick", {"name": "w"}), say("kicked")] + [say(str(i)) for i in range(4)]
+    )
+    h = await lazy(tmp_path, p, idle_turns=3)
+    await h.say("kick the worker")
+    await approve_flow(h)  # kick changes state: it asks first
+    await h.finish()
+    for msg in ("thanks", "ok"):  # used: survives longer than an unused toolset
+        await h.say(msg)
+        await h.finish()
+        assert "ops__kick" in names(p.requests[-1])
+    await h.say("fine")
+    await h.finish()
+    assert "ops__kick" not in names(p.requests[-1])
+    assert toolset_audit(h)[-1] == "ops-admin unloaded: idle"
 
 
 async def test_builtin_files_toolset_loads_on_use(tmp_path: Path) -> None:
@@ -167,3 +187,37 @@ async def test_builtin_files_toolset_loads_on_use(tmp_path: Path) -> None:
     await h.finish()
     assert "files__list" not in names(p.requests[0]) and "files__list" in names(p.requests[1])
     assert '"a.txt"' in results(p.requests[1])[0].content
+
+
+async def test_lazy_loading_is_per_model(tmp_path: Path) -> None:
+    from typing import cast
+
+    from assistant.config import ModelSection
+    from assistant.providers.router import ModelRouter
+    from tests.assistant_fakes import config
+
+    small, big = ScriptedProvider([say("small")]), ScriptedProvider([say("big")])
+    models: dict[str, Any] = {
+        "model": {"alias": "small", "provider": "openai", "name": "s",
+                  "base_url": "http://localhost:1234/v1", "lazy_tools": True},
+        "models": {"big": {"provider": "openai", "name": "b",
+                           "base_url": "https://x/v1", "lazy_tools": False}},
+    }  # fmt: skip
+    cfg = config(tmp_path, server=[OPS], **models)
+
+    def factory(m: ModelSection) -> Any:
+        return small if m.alias == "small" else big
+
+    router = ModelRouter(cfg.profiles, factory, "small")
+    h = await harness(tmp_path, cast(Any, router), server=[OPS], **models)
+    small.script.insert(0, say(""))  # the local model's warm-up
+    await h.say("hello")
+    await h.finish()
+    assert "ops__restart" not in names(small.requests[-1])  # lazy: core only
+    assert "tools__load" in names(small.requests[-1])
+    await h.say("/model big")
+    await h.say("hello again")
+    await h.finish()
+    sent = names(big.requests[-1])
+    assert {"ops__restart", "ops__notes", "files__read"} <= set(sent)  # everything
+    assert "tools__load" not in sent and "toolsets" not in big.requests[-1].system

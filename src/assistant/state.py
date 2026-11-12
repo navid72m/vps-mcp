@@ -168,7 +168,7 @@ class State:
         self.x(
             "INSERT INTO toolsets_active VALUES (?,?,?,?,?) ON CONFLICT(conversation, name) "
             "DO UPDATE SET loaded_turn = excluded.loaded_turn, reason = excluded.reason",
-            (cid, name, turn, turn, reason[:200]),
+            (cid, name, turn, 0, reason[:200]),  # last_used_turn 0: not used yet
         )
 
     def toolset_used(self, cid: str, name: str, turn: int) -> None:

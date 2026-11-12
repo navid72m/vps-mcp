@@ -111,7 +111,10 @@ class Agent:
 
     @property
     def lazy(self) -> bool:
-        return self.config.tools.lazy
+        """Per model (`lazy_tools`), else [tools] lazy: switching models switches strategy."""
+        profile = getattr(self.provider, "profile", None)
+        own = getattr(profile, "lazy_tools", None)
+        return self.config.tools.lazy if own is None else bool(own)
 
     def all_specs(self) -> list[ToolSpec]:
         return [*self.memory.specs(), *self.builtin_specs, *self.hub.specs()]
@@ -133,14 +136,14 @@ class Agent:
         )
 
     def prepare_tools(self, conversation: str, text: str, turn: int, origin: str) -> None:
-        """Turn start: prefetch toolsets matching the operator's words, unload idle ones."""
+        """Turn start: prefetch toolsets matching this message, unload the ones not in use.
+
+        Only the current message is matched: a follow-up still has its toolset because it stays
+        loaded for a while, and earlier words must not keep a finished topic's tools around."""
         cat = self.catalog()
         active = self.state.toolsets_active(conversation)
-        earlier = [
-            t["text"] for t in self.state.recent_turns(conversation, 4) if t["role"] == "user"
-        ][-2:]
         lim = self.config.tools
-        picked = cat.prefetch(text, earlier, lim.threshold, lim.max_auto)
+        picked = cat.prefetch(text, [], lim.threshold, lim.max_auto)
         for name, _, words in picked:
             self.state.toolset_load(conversation, name, turn, f"auto: {', '.join(words)}")
             if name not in active:
@@ -151,10 +154,17 @@ class Agent:
         for name, row in active.items():
             if name in chosen:
                 continue
-            idle = turn - max(int(row["loaded_turn"]), int(row["last_used_turn"]))
-            if name not in cat.sets or idle >= lim.idle_turns:
-                self.state.toolset_unload(conversation, name)
-                self._toolset_audit(conversation, origin, name, "unloaded: idle")
+            loaded, used = int(row["loaded_turn"]), int(row["last_used_turn"])
+            if name not in cat.sets:
+                why = "unloaded: no longer offered"
+            elif not used and turn - loaded >= lim.unused_turns:
+                why = "unloaded: not used"
+            elif used and turn - max(loaded, used) >= lim.idle_turns:
+                why = "unloaded: idle"
+            else:
+                continue
+            self.state.toolset_unload(conversation, name)
+            self._toolset_audit(conversation, origin, name, why)
 
     def load_toolsets(
         self, conversation: str, origin: str, names: list[str], turn: int

@@ -89,6 +89,9 @@ class ModelSection(_Strict):
     timeout_s: float = Field(default=300.0, gt=0, le=1800)
     # another profile to try once when this one errors or times out (e.g. a busy free model)
     fallback: str = ""
+    # lazy tool loading for this model; unset = [tools] lazy. Big, fast models can take every
+    # tool on every call (false); small or local ones answer faster with fewer (true).
+    lazy_tools: bool | None = None
     # "openai" only: sent as reasoning_effort; "none" turns off thinking (faster local models)
     reasoning_effort: Literal["", "none", "minimal", "low", "medium", "high"] = ""
     max_tokens: int = Field(default=2048, ge=64, le=64000)
@@ -156,7 +159,8 @@ class ToolsSection(_Strict):
     lazy: bool = True  # false: every allowed tool on every call (pre-008 behaviour)
     core: list[str] = Field(default_factory=list)  # extra core tools, model-facing name globs
     max_auto: int = Field(default=2, ge=0, le=5)  # toolsets prefetched per turn
-    idle_turns: int = Field(default=6, ge=1)  # unload after this many turns without use
+    idle_turns: int = Field(default=6, ge=1)  # unload a used toolset after this many idle turns
+    unused_turns: int = Field(default=2, ge=1)  # unload a loaded-but-never-used one sooner
     threshold: float = Field(default=2.0, gt=0)  # prefetch score needed
 
 

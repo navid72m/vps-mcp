@@ -687,11 +687,13 @@ loaded when:
 - the model asks for it with `tools__load`;
 - the model calls one of its tools directly.
 
-It stays loaded while the conversation uses it, is unloaded after 6 messages without use, and
-`/new` starts again from the core. Loading never changes a tool's policy: `ask` tools still ask
-and `never` tools are never shown. Groups, core tools and keywords are set per server in the
-config (`core = [...]`, `[server.toolsets.<name>]`, see the example); `[tools] lazy = false` sends
-everything as before. `assistant check` prints the size with and without lazy loading.
+A toolset that was loaded but not used goes after 2 messages; one that was used stays until 6
+messages without use. `/new` starts again from the core. Loading never changes a tool's policy:
+`ask` tools still ask and `never` tools are never shown. Groups, core tools and keywords are set per server in the
+config (`core = [...]`, `[server.toolsets.<name>]`, see the example). `[tools] lazy = false`
+sends everything as before, and `lazy_tools` on a model overrides it for that model, so a big
+hosted model can get every tool while a local one stays lean. `assistant check` prints the size
+with and without lazy loading.
 
 **Limits and audit.**
 

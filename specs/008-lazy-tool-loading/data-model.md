@@ -30,7 +30,7 @@ Core tools never belong to a toolset.
 | conversation | TEXT | Conversation id. Part of the primary key with name. |
 | name | TEXT | Toolset name |
 | loaded_turn | INTEGER | Operator turn number when it was (re)loaded |
-| last_used_turn | INTEGER | Turn when one of its tools was last called |
+| last_used_turn | INTEGER | Turn when one of its tools was last called; 0 = not used yet |
 | reason | TEXT | `auto: <matched words>`, `model`, or `called <tool>` |
 
 **Lifecycle**:
@@ -49,7 +49,8 @@ Core tools never belong to a toolset.
 lazy = true          # false: send every allowed tool on every call (pre-008 behaviour)
 core = []            # extra core patterns, as model-facing names: "vps__db_overview"
 max_auto = 2         # toolsets prefetched per turn
-idle_turns = 6       # unload after this many operator turns without use
+idle_turns = 6       # unload a used toolset after this many operator turns without use
+unused_turns = 2     # unload a loaded-but-never-used toolset after this many
 threshold = 2.0      # prefetch score needed
 ```
 
@@ -75,3 +76,10 @@ keywords = ["gitlab", "repo", "merge request", "pipeline", "ci", "branch", "comm
   - `target` is the toolset name;
   - `outcome` is `loaded: auto (pipeline, gitlab)`, `loaded: model`, `loaded: called vps__db_table`, `unloaded: idle`, or `refused: unknown toolset 'x'`.
 - **`model_call` outcome** gains ` tools=<chars>`.
+
+### Per model (optional)
+
+```toml
+[model]
+lazy_tools = false   # this model gets every tool on every call; unset = [tools] lazy
+```

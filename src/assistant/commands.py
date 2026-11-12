@@ -351,9 +351,11 @@ def tools_text(a: Assistant, chat_id: int) -> str:
         if row is None:
             idle.append(f"{name} ({len(ts.tools)})" + ("" if ts.available else " [down]"))
             continue
-        ago = turn - max(int(row["loaded_turn"]), int(row["last_used_turn"]))
+        used = int(row["last_used_turn"])
+        ago = turn - max(int(row["loaded_turn"]), used)
         when = "this turn" if ago <= 0 else f"{ago} turn(s) ago"
-        lines.append(f"▶️ {name} ({len(ts.tools)}): {row['reason']} · {when}")
+        state = "used" if used else "not used yet"
+        lines.append(f"▶️ {name} ({len(ts.tools)}): {row['reason']} · {when} · {state}")
     if idle:
         lines.append("Not loaded: " + " · ".join(idle))
     return "\n".join(lines)

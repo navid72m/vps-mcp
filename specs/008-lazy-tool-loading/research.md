@@ -84,7 +84,7 @@ Patterns are `fnmatch` globs on the server's own tool name, like the existing `a
 
 - **Each toolset's keywords**: the stemmed words of its tool names (split on `_`) at weight 2, its configured keywords at weight 3, and words from its tools' descriptions at weight 0.5. Description words found in more than half of all toolsets are dropped. Uses agent-memory's `stem()` and `STOPWORDS`, with its own tokenizer that keeps short technical words (ci, db, mr).
 - **Words ignored for matching**: generic words that appear in tool names but say nothing about which toolset is meant ("status", "list", "info", "service") and filler words ("please", "show", "last", "today"). This was found during implementation: "what's the status" otherwise loaded two toolsets, although the core already answers it.
-- **The query**: the stemmed words of the current message (weight 1.0) plus the previous two operator messages (weight 0.5).
+- **The query**: the stemmed words of the current message. A first version also matched the two previous messages at half weight. The live test showed this kept a GitLab toolset loaded through four off-topic messages (about 53 s per answer on the local model instead of about 21 s), so it was dropped. Follow-ups are covered by the unload delay.
 - **Score**: the sum over matched query words of keyword weight × query weight × idf, where idf = log(1 + toolsets / toolsets having the word as a strong keyword, from a name or the config). Words match when their stems are equal, or one is a prefix of the other with at least 5 characters (deploy/deployment, rehears/rehearsal).
 - **Loading rule**: load toolsets scoring ≥ 2.0 and ≥ 60% of the best score, the best two at most (configurable). A single strong word such as "pipeline" qualifies on its own, and a clear winner doesn't drag in weak runners-up.
 - **Measured**: 20/20 on the test questions written for SC-002; chit-chat loads nothing.
@@ -116,7 +116,7 @@ Patterns are `fnmatch` globs on the server's own tool name, like the existing `a
 **Decision**: the table `toolsets_active(conversation, name, loaded_turn, last_used_turn, reason)`.
 
 - **Turn counter**: a monotonic per-conversation counter in the `kv` table. The turns table can't be used because old turns are folded away into the summary.
-- **Unloading**: at the start of each turn, toolsets with `turn - max(loaded_turn, last_used_turn) ≥ idle_turns` (default 6) are unloaded, unless the prefetch matches them again.
+- **Unloading**: at the start of each turn, a toolset that was never used is unloaded after `unused_turns` (default 2). A used one is unloaded when `turn - max(loaded_turn, last_used_turn) ≥ idle_turns` (default 6). A toolset the current message matches again stays. `last_used_turn = 0` means not used yet.
 - **New conversation**: `/new` and conversation end start a new conversation id, so nothing is loaded.
 
 **Rationale**:
@@ -144,3 +144,12 @@ Patterns are `fnmatch` globs on the server's own tool name, like the existing `a
 - **Tests**: a quality test runs 20 fixed questions against a fixture of the real vps-mcp tool names and descriptions (public tool metadata only) and asserts the SC-002 hit rate.
 
 **Rationale**: The improvement and the prefetch quality should both be visible in real use, not only in tests, so the keywords can be tuned from the audit trail.
+
+## R9: Per-model setting (added after the live test)
+
+**Decision**: `lazy_tools` on each model profile overrides `[tools] lazy`.
+
+**Rationale**:
+- A large, fast hosted model reads the full tool list in well under a second. For it, never missing a tool is worth more than the saved tokens.
+- A local or free-tier model pays heavily for every token. Free tiers can also have a per-request prompt cap.
+- Switching models with `/model` therefore switches the strategy too.

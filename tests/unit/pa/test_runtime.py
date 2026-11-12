@@ -259,22 +259,33 @@ async def test_anthropic_mapping() -> None:
 
 
 async def test_sigterm_is_a_clean_shutdown(tmp_path: Path) -> None:
-    import os
+    # never signal the real process: pytest would die if the timing slipped. Capture the
+    # handler run() installs and call it, which is what the event loop does on SIGTERM.
     import signal
 
     h = await harness(tmp_path)
     h.state.kv_set("clean_shutdown", "0")
+    loop = asyncio.get_running_loop()
+    handlers: dict[int, Any] = {}
+
+    def capture(sig: int, cb: Any, *args: Any) -> None:
+        handlers[sig] = cb
 
     async def updates() -> Any:
-        os.kill(os.getpid(), signal.SIGTERM)
+        handlers[signal.SIGTERM]()  # what a SIGTERM from launchd would trigger
         await asyncio.sleep(5)
         yield None
 
     async def started() -> None:  # the harness already started it
         return None
 
-    h.a.channel.updates = updates  # type: ignore[method-assign]
-    h.a.start = started  # type: ignore[method-assign]
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(asyncio.ensure_future(h.a.run()), 3)
+    loop.add_signal_handler = capture  # type: ignore[method-assign]
+    try:
+        h.a.channel.updates = updates  # type: ignore[method-assign]
+        h.a.start = started  # type: ignore[method-assign]
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(asyncio.ensure_future(h.a.run()), 3)
+    finally:
+        del loop.add_signal_handler  # back to the class method
+    assert signal.SIGTERM in handlers
     assert h.state.kv_get("clean_shutdown") == "1"

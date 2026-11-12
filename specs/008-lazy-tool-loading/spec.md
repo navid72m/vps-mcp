@@ -131,7 +131,7 @@ The operator can choose which tools are always available and how a server's tool
 **Loading**
 
 - **FR-006**: The model MUST have a tool to load one or more toolsets by name. Loaded tools MUST be available from the model's next step in the same turn.
-- **FR-007**: Before the first model call of a turn, the assistant MUST score each unloaded toolset against the operator's message plus the last two operator messages, using keyword matching with stemming. It MUST load the best-scoring toolsets above a threshold, at most the configured number per turn (default 2). This step MUST NOT call a model.
+- **FR-007**: Before the first model call of a turn, the assistant MUST score each toolset against the operator's current message, using keyword matching with stemming. Earlier messages are not matched: a follow-up finds its toolset because it is still loaded, and earlier words must not keep a finished topic's tools around (found in the live test). It MUST load the best-scoring toolsets above a threshold, at most the configured number per turn (default 2). This step MUST NOT call a model.
 - **FR-008**: Each toolset MUST have matching keywords:
   - derived automatically from its tools' names and descriptions;
   - optionally extended with configured keywords.
@@ -140,7 +140,7 @@ The operator can choose which tools are always available and how a server's tool
 **Unloading**
 
 - **FR-010**: Loaded toolsets MUST be remembered per conversation across turns and restarts.
-- **FR-011**: A loaded toolset that has not been used or loaded for N operator turns (default 6) MUST be unloaded.
+- **FR-011**: A loaded toolset that was never used MUST be unloaded after M operator turns (default 2). One that was used MUST be unloaded after N turns without use (default 6).
 - **FR-012**: A new conversation MUST start with no loaded toolsets.
 
 **Configuration**
@@ -151,7 +151,7 @@ The operator can choose which tools are always available and how a server's tool
 
   The built-in tools (files, schedules, model switching) MUST have default groups.
 - **FR-014**: Unconfigured tools MUST be grouped as one toolset per server. For vps-mcp, defaults MUST be provided in the example configuration.
-- **FR-015**: Lazy loading MUST be switchable off. When off, behaviour MUST be identical to before this feature.
+- **FR-015**: Lazy loading MUST be switchable off, globally and per model. When off, behaviour MUST be identical to before this feature. Switching models with `/model` switches the strategy with it (a large, fast model can take every tool; a small or local one answers faster with fewer).
 
 **Policy, audit and visibility**
 

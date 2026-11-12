@@ -24,6 +24,7 @@ base_url = "http://localhost:1234/v1" # LM Studio's local server (Ollama: http:/
 timeout_s = 300                       # local models can be slow on long prompts
 # fallback = "gemini"                 # another [models.*] entry tried once if this one fails
 reasoning_effort = "none"             # no hidden thinking: about 2x faster answers on a laptop
+# lazy_tools = false                  # per model: big, fast hosted models can take every tool
 max_tokens = 2048
 prices = { input_per_mtok = 0.0, output_per_mtok = 0.0 }   # for cost estimates / budgets
 
@@ -114,7 +115,8 @@ keywords = ["memory", "remember", "note"]
 [tools]
 lazy = true                           # false: every tool on every call (bigger, slower prompts)
 max_auto = 2                          # toolsets loaded automatically per message
-idle_turns = 6                        # unload a toolset after this many messages without use
+idle_turns = 6                        # unload a used toolset after this many messages without use
+unused_turns = 2                      # unload one that was loaded but never used sooner
 
 [[schedule]]
 name = "morning-briefing"
