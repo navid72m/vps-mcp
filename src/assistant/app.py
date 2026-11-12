@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import fcntl
+import json
 import logging
 import os
 import signal
+import subprocess
+import sys
 import zoneinfo
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -94,11 +97,13 @@ class Assistant:
         self.hub = hub
         self.agent = Agent(config, provider, hub, memory, self.budget, state, self.clock)
         self.router = provider if isinstance(provider, ModelRouter) else None
+        specs = self.schedule_specs()
         if self.router is not None:
             self.budget.prices = self.router.profile.prices
             if len(self.router.profiles) > 1:
-                self.agent.builtin_specs = [self.switch_spec()]
-                self.agent.builtin = self.builtin
+                specs.append(self.switch_spec())
+        self.agent.builtin_specs = specs
+        self.agent.builtin = self.builtin
         self.owner_chat = config.telegram.allowed_user_ids[0]
         self.turns: dict[int, asyncio.Task[Any]] = {}
         self.pending: dict[int, list[str]] = {}  # messages waiting for the next turn, per chat
@@ -163,7 +168,8 @@ class Assistant:
         now = self.clock.wall()
         known = {s["name"]: s for s in self.state.schedules()}
         for s in self.config.schedule:
-            nxt = Cadence.parse(s.cadence).next_after(now, self.tz).isoformat()
+            nxt_dt = Cadence.parse(s.cadence, now=now, tz=self.tz).next_after(now, self.tz)
+            nxt = nxt_dt.isoformat() if nxt_dt is not None else None
             cur = known.get(s.name)
             self.state.schedule_upsert(
                 s.name,
@@ -253,7 +259,83 @@ class Assistant:
         await self.channel.send(chat_id, result.text, markdown=True)
         return result.text
 
-    # --------------------------------------------------------------- models
+    # --------------------------------------------------------------- models & tools
+
+    def schedule_specs(self) -> list[ToolSpec]:
+        return [
+            ToolSpec(
+                "schedule__add",
+                "Add a reminder, recurring schedule, or cron job to run on this laptop. "
+                "Cadence options: 'in 15m' / 'in 2h' (relative timer), 'at 14:00' (time today/tomorrow), "
+                "'daily HH:MM', 'weekdays HH:MM', 'every 30m', 'every 2h', or standard cron 'cron */15 * * * *'. "
+                "Prompt is the reminder message or instruction to run.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "Identifier slug (e.g. 'remind_check_db', 'daily_brief')",
+                        },
+                        "cadence": {
+                            "type": "string",
+                            "description": "Cadence: 'in 15m', 'at 14:30', 'daily 08:00', 'cron 0 9 * * 1', etc.",
+                        },
+                        "prompt": {
+                            "type": "string",
+                            "description": "The reminder text or task to execute",
+                        },
+                    },
+                    "required": ["name", "cadence", "prompt"],
+                },
+            ),
+            ToolSpec(
+                "schedule__list",
+                "List all active and paused reminders, schedules, and cron jobs on this laptop.",
+                {"type": "object", "properties": {}},
+            ),
+            ToolSpec(
+                "schedule__remove",
+                "Remove / cancel a scheduled reminder or cron job by name.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "The name of the schedule to remove",
+                        }
+                    },
+                    "required": ["name"],
+                },
+            ),
+            ToolSpec(
+                "schedule__pause",
+                "Pause a scheduled reminder or cron job by name.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "The name of the schedule to pause",
+                        }
+                    },
+                    "required": ["name"],
+                },
+            ),
+            ToolSpec(
+                "schedule__resume",
+                "Resume a paused schedule or cron job by name.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "The name of the schedule to resume",
+                        }
+                    },
+                    "required": ["name"],
+                },
+            ),
+        ]
 
     def switch_spec(self) -> ToolSpec:
         assert self.router is not None
@@ -272,23 +354,124 @@ class Assistant:
         )
 
     async def builtin(self, name: str, args: dict[str, Any], chat_id: int) -> tuple[str, bool]:
-        if name != "assistant__switch_model" or self.router is None:
-            return f"unknown tool {name}", True
-        alias = str(args.get("model", ""))
-        if alias not in self.router.profiles:
-            return f"unknown model '{alias}'; choose one of {list(self.router.profiles)}", True
-        if alias == self.router.current:
-            return f"already running on {alias}", False
-        m = self.router.profiles[alias]
-        await self.channel.send(
-            chat_id,
-            f"🔀 Switch the model to {alias} ({m.name}, {m.where})?",
-            [
-                (f"Switch to {alias}", self.signer.sign(f"md:{alias}")),
-                (f"Keep {self.router.current}", self.signer.sign("md:")),
-            ],
-        )
-        return "asked the operator to confirm the switch on their phone", False
+        if name == "assistant__switch_model":
+            if self.router is None:
+                return "no router configured", True
+            alias = str(args.get("model", ""))
+            if alias not in self.router.profiles:
+                return f"unknown model '{alias}'; choose one of {list(self.router.profiles)}", True
+            if alias == self.router.current:
+                return f"already running on {alias}", False
+            m = self.router.profiles[alias]
+            await self.channel.send(
+                chat_id,
+                f"🔀 Switch the model to {alias} ({m.name}, {m.where})?",
+                [
+                    (f"Switch to {alias}", self.signer.sign(f"md:{alias}")),
+                    (f"Keep {self.router.current}", self.signer.sign("md:")),
+                ],
+            )
+            return "asked the operator to confirm the switch on their phone", False
+
+        if name == "schedule__add":
+            s_name = str(args.get("name", "")).strip()
+            cadence = str(args.get("cadence", "")).strip()
+            prompt = str(args.get("prompt", "")).strip()
+            if not s_name or not cadence or not prompt:
+                return "name, cadence, and prompt are all required", True
+            try:
+                now = self.clock.wall()
+                cad = Cadence.parse(cadence, now=now, tz=self.tz)
+                nxt = cad.next_after(now, self.tz)
+                if nxt is None:
+                    return f"cadence '{cadence}' has no upcoming execution", True
+            except Exception as exc:  # noqa: BLE001
+                return f"invalid cadence: {exc}", True
+            cad_stored = f"once {nxt.isoformat()}" if cad.kind == "once" else cadence
+            self.state.schedule_upsert(
+                s_name, cad_stored, prompt[:2000], True, nxt.isoformat(), "agent"
+            )
+            self.state.schedule_set(s_name, enabled=1, next_run=nxt.isoformat())
+            return (
+                json.dumps(
+                    {
+                        "ok": True,
+                        "name": s_name,
+                        "cadence": cadence,
+                        "next_run": nxt.isoformat(),
+                        "prompt": prompt,
+                    }
+                ),
+                False,
+            )
+
+        if name == "schedule__list":
+            rows = self.state.schedules()
+            return (
+                json.dumps(
+                    {
+                        "ok": True,
+                        "schedules": [
+                            {
+                                "name": r["name"],
+                                "cadence": r["cadence"],
+                                "prompt": r["prompt"],
+                                "enabled": bool(r["enabled"]),
+                                "next_run": r["next_run"],
+                                "last_run": r.get("last_run"),
+                            }
+                            for r in rows
+                        ],
+                    }
+                ),
+                False,
+            )
+
+        if name == "schedule__remove":
+            s_name = str(args.get("name", "")).strip()
+            ok = self.state.schedule_remove(s_name)
+            if ok:
+                return json.dumps({"ok": True, "removed": s_name}), False
+            return json.dumps({"ok": False, "error": f"no schedule named '{s_name}'"}), True
+
+        if name == "schedule__pause":
+            s_name = str(args.get("name", "")).strip()
+            names = {s["name"] for s in self.state.schedules()}
+            if s_name not in names:
+                return json.dumps({"ok": False, "error": f"no schedule named '{s_name}'"}), True
+            self.state.schedule_set(s_name, enabled=0)
+            return json.dumps({"ok": True, "name": s_name, "paused": True}), False
+
+        if name == "schedule__resume":
+            s_name = str(args.get("name", "")).strip()
+            sched = next((s for s in self.state.schedules() if s["name"] == s_name), None)
+            if sched is None:
+                return json.dumps({"ok": False, "error": f"no schedule named '{s_name}'"}), True
+            now = self.clock.wall()
+            try:
+                cad = Cadence.parse(sched["cadence"], now=now, tz=self.tz)
+                nxt = cad.next_after(now, self.tz)
+                if nxt is None:
+                    return (
+                        json.dumps({"ok": False, "error": "one-time reminder has already expired"}),
+                        True,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                return json.dumps({"ok": False, "error": str(exc)}), True
+            self.state.schedule_set(s_name, enabled=1, next_run=nxt.isoformat())
+            return (
+                json.dumps(
+                    {
+                        "ok": True,
+                        "name": s_name,
+                        "resumed": True,
+                        "next_run": nxt.isoformat(),
+                    }
+                ),
+                False,
+            )
+
+        return f"unknown tool {name}", True
 
     def switch_model(self, alias: str) -> str:
         """Switch now; returns the message for the operator."""
@@ -397,6 +580,24 @@ class Assistant:
 
     # ------------------------------------------------------------ schedules
 
+    def notify_desktop(self, title: str, text: str) -> None:
+        """Best-effort desktop notification on the laptop (macOS)."""
+        if sys.platform != "darwin":
+            return
+        with contextlib.suppress(Exception):
+            safe_title = title.replace("\\", "\\\\").replace('"', '\\"')
+            safe_text = text.replace("\\", "\\\\").replace('"', '\\"')[:200]
+            subprocess.run(
+                [
+                    "/usr/bin/osascript",
+                    "-e",
+                    f'display notification "{safe_text}" with title "{safe_title}"',
+                ],
+                check=False,
+                capture_output=True,
+                timeout=3,
+            )
+
     async def run_schedule(self, name: str, missed: bool = False) -> None:
         sched = next((s for s in self.state.schedules() if s["name"] == name), None)
         if sched is None or self.paused:
@@ -406,6 +607,7 @@ class Assistant:
         self.state.audit(
             "schedule_run", origin="schedule", target=name, outcome="missed-run" if missed else "ok"
         )
+        self.notify_desktop(f"⏰ {name}", sched["prompt"])
         conv = self.state.conversation_new(self.owner_chat, now.isoformat())
         await self.channel.send(self.owner_chat, f"⏰ {name}")
         await self.chat_turn(self.owner_chat, sched["prompt"], "schedule", str(conv["id"]))
@@ -420,10 +622,12 @@ class Assistant:
             missed = [s for s in schedules if s["next_run"] and s["next_run"] <= now.isoformat()]
             for s in schedules:
                 if s["next_run"] and s["next_run"] <= now.isoformat():
-                    self.state.schedule_set(
-                        s["name"],
-                        next_run=Cadence.parse(s["cadence"]).next_after(now, self.tz).isoformat(),
-                    )
+                    cad = Cadence.parse(s["cadence"], now=now, tz=self.tz)
+                    nxt = cad.next_after(now, self.tz)
+                    if nxt is None:
+                        self.state.schedule_set(s["name"], enabled=0, next_run=None)
+                    else:
+                        self.state.schedule_set(s["name"], next_run=nxt.isoformat())
             if missed:
                 names = ", ".join(s["name"] for s in missed)
                 latest = max(missed, key=lambda s: str(s["next_run"]))
@@ -435,10 +639,12 @@ class Assistant:
             return
         for s in schedules:
             if s["next_run"] and s["next_run"] <= now.isoformat():
-                self.state.schedule_set(
-                    s["name"],
-                    next_run=Cadence.parse(s["cadence"]).next_after(now, self.tz).isoformat(),
-                )
+                cad = Cadence.parse(s["cadence"], now=now, tz=self.tz)
+                nxt = cad.next_after(now, self.tz)
+                if nxt is None:
+                    self.state.schedule_set(s["name"], enabled=0, next_run=None)
+                else:
+                    self.state.schedule_set(s["name"], next_run=nxt.isoformat())
                 if not self.paused:
                     self.spawn(self.run_schedule(s["name"]))
         await self.heartbeat(now)
@@ -449,16 +655,16 @@ class Assistant:
         if not cadence:
             return
         nxt = self.state.kv_get("next_heartbeat")
+        nxt_dt = Cadence.parse(cadence).next_after(now, self.tz)
+        if nxt_dt is None:
+            return
+        nxt_iso = nxt_dt.isoformat()
         if nxt is None:
-            self.state.kv_set(
-                "next_heartbeat", Cadence.parse(cadence).next_after(now, self.tz).isoformat()
-            )
+            self.state.kv_set("next_heartbeat", nxt_iso)
             return
         if nxt > now.isoformat():
             return
-        self.state.kv_set(
-            "next_heartbeat", Cadence.parse(cadence).next_after(now, self.tz).isoformat()
-        )
+        self.state.kv_set("next_heartbeat", nxt_iso)
         self.state.kv_set("last_heartbeat", now.isoformat())
         up = now - self.started
         await self.channel.send(

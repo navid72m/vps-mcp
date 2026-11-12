@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 from typing import TYPE_CHECKING
 
 from assistant.config import SLUG_RE
@@ -12,7 +13,7 @@ if TYPE_CHECKING:
     from assistant.app import Assistant
 
 HELP = (
-    "Commands: /new · /done · /status · /usage · /schedules · "
+    "Commands: /new · /done · /status · /usage · /remind <in 15m|at 14:00> <text> · /schedules · "
     "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /stop · /resume · "
     "/forget · /model [name]"
 )
@@ -29,6 +30,7 @@ async def dispatch(a: Assistant, chat_id: int, text: str) -> None:
         "/done": done,
         "/status": status,
         "/usage": usage,
+        "/remind": remind,
         "/schedules": schedules,
         "/schedule": schedule,
         "/stop": stop,
@@ -100,17 +102,53 @@ async def usage(a: Assistant, chat_id: int, rest: str) -> None:
     await a.channel.send(chat_id, "📊 " + a.budget.usage_text())
 
 
+async def remind(a: Assistant, chat_id: int, rest: str) -> None:
+    parts = rest.strip().split(maxsplit=2)
+    if len(parts) < 3 or parts[0] not in ("in", "at"):
+        await a.channel.send(
+            chat_id,
+            "usage: /remind in <Ns|Nm|Nh|Nd> <text> or /remind at <HH:MM> <text>\n"
+            "example: /remind in 15m Check the server\n"
+            "example: /remind at 14:30 Join project meeting",
+        )
+        return
+    cadence = f"{parts[0]} {parts[1]}"
+    prompt = parts[2].strip()
+    now = a.clock.wall()
+    try:
+        cad = Cadence.parse(cadence, now=now, tz=a.tz)
+        nxt = cad.next_after(now, a.tz)
+        if nxt is None:
+            await a.channel.send(chat_id, "⚠️ Reminder time is already in the past.")
+            return
+    except Exception as exc:  # noqa: BLE001
+        await a.channel.send(chat_id, f"⚠️ {exc}")
+        return
+    first_word = re.sub(r"[^a-z0-9]", "", prompt.lower().split()[0])[:12] if prompt else "reminder"
+    name = f"{first_word or 'remind'}-{now.strftime('%H%M%S')}"
+    cad_stored = f"once {nxt.isoformat()}"
+    a.state.schedule_upsert(name, cad_stored, prompt[:2000], True, nxt.isoformat(), "chat")
+    a.state.schedule_set(name, enabled=1, next_run=nxt.isoformat())
+    local_time = nxt.astimezone(a.tz).strftime("%H:%M")
+    await a.channel.send(chat_id, f'⏰ Reminder set for {local_time} ({cadence}): "{prompt}"')
+
+
 async def schedules(a: Assistant, chat_id: int, rest: str) -> None:
     rows = a.state.schedules()
     if not rows:
         await a.channel.send(
             chat_id,
-            "No schedules. Add one: /schedule add morning weekdays 08:00 Give me a briefing.",
+            "No schedules or reminders.\n"
+            "Add one:\n"
+            "• /remind in 15m Check the server\n"
+            "• /schedule add morning weekdays 08:00 Give me a briefing\n"
+            "• /schedule add backup cron 0 3 * * * Run backup",
         )
         return
     lines = [
-        f"{'▶️' if s['enabled'] else '⏸'} {s['name']} · {s['cadence']} · next "
-        f"{str(s['next_run'])[:16]}\n   {s['prompt'][:80]}"
+        f"{'▶️' if s['enabled'] else '⏸'} {s['name']} · "
+        f"{'one-off reminder' if s['cadence'].startswith('once ') else s['cadence']} · next "
+        f"{str(s['next_run'])[:16] if s['next_run'] else 'done'}\n   {s['prompt'][:80]}"
         for s in rows
     ]
     await a.channel.send(chat_id, "\n".join(lines))
@@ -120,19 +158,31 @@ async def schedule(a: Assistant, chat_id: int, rest: str) -> None:
     action, _, args = rest.partition(" ")
     if action == "add":
         name, _, more = args.partition(" ")
-        parts = more.split(" ")
-        cadence = " ".join(parts[:2]) if parts and parts[0] in ("daily", "weekdays") else parts[0]
-        prompt = " ".join(parts[2:] if parts and parts[0] in ("daily", "weekdays") else parts[1:])
+        parts = more.split()
+        if parts and parts[0] == "cron" and len(parts) >= 6:
+            cadence = " ".join(parts[:6])
+            prompt = " ".join(parts[6:])
+        elif parts and parts[0] in ("daily", "weekdays", "in", "at", "every") and len(parts) >= 2:
+            cadence = " ".join(parts[:2])
+            prompt = " ".join(parts[2:])
+        else:
+            cadence = parts[0] if parts else ""
+            prompt = " ".join(parts[1:])
+        now = a.clock.wall()
         try:
             if not SLUG_RE.fullmatch(name) or not prompt.strip():
-                raise ValueError(
-                    "usage: /schedule add <name> <daily HH:MM|weekdays HH:MM|every Nh> <prompt>"
-                )
-            nxt = Cadence.parse(cadence).next_after(a.clock.wall(), a.tz)
-        except ValueError as exc:
+                raise ValueError("usage: /schedule add <name> <cadence> <prompt>")
+            cad = Cadence.parse(cadence, now=now, tz=a.tz)
+            nxt = cad.next_after(now, a.tz)
+            if nxt is None:
+                raise ValueError(f"cadence '{cadence}' has no upcoming execution")
+        except (ValueError, RuntimeError) as exc:
             await a.channel.send(chat_id, f"⚠️ {exc}")
             return
-        a.state.schedule_upsert(name, cadence, prompt.strip()[:2000], True, nxt.isoformat(), "chat")
+        cad_stored = f"once {nxt.isoformat()}" if cad.kind == "once" else cadence
+        a.state.schedule_upsert(
+            name, cad_stored, prompt.strip()[:2000], True, nxt.isoformat(), "chat"
+        )
         a.state.schedule_set(name, enabled=1, next_run=nxt.isoformat())
         await a.channel.send(chat_id, f"⏰ {name}: {cadence}, next {nxt.isoformat()[:16]}")
         return

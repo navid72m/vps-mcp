@@ -12,7 +12,12 @@ from typing import Annotated, Literal
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 CADENCE_RE = re.compile(
-    r"^(?:(daily|weekdays) ([01]\d|2[0-3]):([0-5]\d)|every ([1-9]|1\d|2[0-4])h)$"
+    r"^(?:(daily|weekdays)\s+([01]\d|2[0-3]):([0-5]\d)"
+    r"|every\s+(?:([1-9]|1\d|2[0-4])h|([1-9]|[1-5]\d)m)"
+    r"|in\s+([1-9]\d*)(s|m|h|d)"
+    r"|at\s+([01]\d|2[0-3]):([0-5]\d)"
+    r"|(?:at|once)\s+\d{4}-\d{2}-\d{2}(?:\s+|T)\d{2}:\d{2}(?::\d{2})?.*"
+    r"|cron\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+)$"
 )
 SERVER_RE = re.compile(r"^[a-z][a-z0-9_]{0,15}$")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
