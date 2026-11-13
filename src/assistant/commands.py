@@ -16,9 +16,9 @@ if TYPE_CHECKING:
 
 HELP = (
     "Commands: /new · /done · /status · /usage · /remind <in 15m|at 14:00> <text> · /schedules · "
-    "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /ls [path] · /cat <path> · "
-    "/send <path> · /stop · /resume · /forget · /model [name] · /tools · /me [all|export] · "
-    "/interview"
+    "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /agenda [today|tomorrow|week] · "
+    "/inbox · /tg [unread|chats|search <q>] · /ls [path] · /cat <path> · /send <path> · /stop · /resume · /forget · /model [name] · "
+    "/tools · /me [all|export] · /interview"
 )
 
 
@@ -46,6 +46,9 @@ async def dispatch(a: Assistant, chat_id: int, text: str) -> None:
         "/tools": tools,
         "/me": me,
         "/interview": interview,
+        "/agenda": agenda,
+        "/inbox": inbox,
+        "/tg": tg,
         "/cancel": cancel,
     }.get(cmd)
     if handler is None:
@@ -380,3 +383,121 @@ async def interview(a: Assistant, chat_id: int, rest: str) -> None:
 
 async def cancel(a: Assistant, chat_id: int, rest: str) -> None:
     await a.channel.send(chat_id, "OK, nothing changed.")
+
+
+async def agenda(a: Assistant, chat_id: int, rest: str) -> None:
+    from datetime import timedelta
+
+    from assistant import calendar
+
+    if not a.config.google.enabled:
+        await a.channel.send(chat_id, "Google Calendar is not enabled in assistant.toml.")
+        return
+
+    now = a.clock.wall()
+    tz = a.tz
+    target = rest.strip().lower()
+    if target == "tomorrow":
+        tomorrow = (now + timedelta(days=1)).astimezone(tz)
+        time_min = tomorrow.strftime("%Y-%m-%d")
+        time_max = (tomorrow + timedelta(days=1)).strftime("%Y-%m-%d")
+        heading = "Tomorrow's Agenda"
+    elif target == "week":
+        time_min = now.astimezone(tz).strftime("%Y-%m-%d")
+        time_max = (now + timedelta(days=7)).astimezone(tz).strftime("%Y-%m-%d")
+        heading = "This Week's Agenda"
+    else:
+        today = now.astimezone(tz)
+        time_min = today.strftime("%Y-%m-%d")
+        time_max = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+        heading = "Today's Agenda"
+
+    try:
+        auth = a.google_auth()
+        events = await calendar.list_events(
+            auth,
+            time_min=time_min,
+            time_max=time_max,
+            max_results=a.config.google.max_events,
+            timezone=a.config.assistant.timezone,
+        )
+        text = calendar.format_agenda(events, heading)
+        await a.channel.send(chat_id, text)
+    except Exception as exc:
+        await a.channel.send(chat_id, f"⚠️ Calendar error: {exc}")
+
+
+async def inbox(a: Assistant, chat_id: int, rest: str) -> None:
+    from assistant import gmail
+
+    if not a.config.google.enabled:
+        await a.channel.send(chat_id, "Gmail is not enabled in assistant.toml.")
+        return
+
+    try:
+        auth = a.google_auth()
+        msgs = await gmail.list_inbox(
+            auth, unread_only=True, max_results=a.config.google.max_emails
+        )
+        text = gmail.format_inbox(msgs, "Unread Inbox")
+        await a.channel.send(chat_id, text)
+    except Exception as exc:
+        await a.channel.send(chat_id, f"⚠️ Gmail error: {exc}")
+
+
+async def tg(a: Assistant, chat_id: int, rest: str) -> None:
+    from assistant import telegram_user
+
+    if not a.config.telegram_user.enabled:
+        await a.channel.send(
+            chat_id, "Personal Telegram integration is not enabled in assistant.toml."
+        )
+        return
+
+    subcmd, _, arg = rest.partition(" ")
+    subcmd = subcmd.lower().strip()
+    arg = arg.strip()
+
+    try:
+        client = a.telegram_user_client()
+        if subcmd in ("", "unread", "inbox"):
+            dialogs = await client.list_inbox(
+                unread_only=True, limit=a.config.telegram_user.max_messages
+            )
+            text = telegram_user.format_inbox(dialogs, "Unread Chats")
+            await a.channel.send(chat_id, text)
+        elif subcmd in ("all", "chats", "dialogs"):
+            dialogs = await client.list_inbox(
+                unread_only=False, limit=a.config.telegram_user.max_messages
+            )
+            text = telegram_user.format_inbox(dialogs, "Recent Chats")
+            await a.channel.send(chat_id, text)
+        elif subcmd == "search":
+            if not arg:
+                await a.channel.send(chat_id, "Usage: /tg search <query>")
+                return
+            res = await client.search_messages(query=arg, limit=a.config.telegram_user.max_messages)
+            matching_chats = res.get("chats", [])
+            msgs = res.get("messages", [])
+            if not msgs and not matching_chats:
+                await a.channel.send(chat_id, f"No chats or messages found matching '{arg}'.")
+                return
+            lines = []
+            if matching_chats:
+                lines.append(f"📁 Matching chat(s) ({len(matching_chats)}):")
+                for c in matching_chats:
+                    lines.append(f"• **{c['title']}** [ID: `{c['id']}`]")
+                lines.append("")
+            if msgs:
+                lines.append(f"🔍 Message(s) ({len(msgs)}):")
+                for m in msgs:
+                    sender = m.get("sender_name") or "Unknown"
+                    chat_title = m.get("chat_title") or str(m.get("chat_id", ""))
+                    date = m.get("date", "")[:16]
+                    text_snippet = m.get("text", "").replace("\n", " ")[:120]
+                    lines.append(f"• **{sender}** in *{chat_title}* ({date}):\n  {text_snippet}")
+            await a.channel.send(chat_id, "\n".join(lines).strip())
+        else:
+            await a.channel.send(chat_id, "Usage: /tg [unread|chats|search <query>]")
+    except Exception as exc:
+        await a.channel.send(chat_id, f"⚠️ Telegram error: {exc}")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import shutil
@@ -26,7 +27,10 @@ def _load(args: argparse.Namespace) -> cfgmod.Config:
 
 
 def _names(cfg: cfgmod.Config) -> list[str]:
-    return ["telegram_bot_token", *cfg.model.secret_names]
+    names = ["telegram_bot_token", *cfg.model.secret_names]
+    if cfg.telegram_user.enabled:
+        names.extend([cfg.telegram_user.api_id_secret, cfg.telegram_user.api_hash_secret])
+    return names
 
 
 def _secrets(cfg: cfgmod.Config) -> dict[str, str]:
@@ -235,6 +239,212 @@ def cmd_secrets(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_google_auth(args: argparse.Namespace) -> int:
+    import http.server
+    import subprocess
+    import time
+    import urllib.parse
+    import webbrowser
+    from typing import Any
+
+    from assistant import google_auth
+    from assistant.secrets import provider_for
+
+    cfg = _load(args)
+    prov = provider_for(cfg.secrets.provider, cfg.secrets.service, cfg.secrets.file)
+
+    client_id = ""
+    client_secret = ""
+    path = Path(cfg.google.credentials_path).expanduser()
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            info = raw.get("installed") or raw.get("web") or raw
+            client_id = str(info.get("client_id", "")).strip()
+            client_secret = str(info.get("client_secret", "")).strip()
+            print(f"Loaded client credentials from {path}")
+        except Exception as exc:
+            print(f"Warning: could not read {path}: {exc}", file=sys.stderr)
+
+    if not client_id:
+        with contextlib.suppress(Exception):
+            client_id = prov.get(cfg.google.client_id_secret)
+    if not client_secret:
+        with contextlib.suppress(Exception):
+            client_secret = prov.get(cfg.google.client_secret_secret)
+
+    if not client_id or not client_secret:
+        print(
+            "Error: Google client credentials not found.\n"
+            f"1. Download OAuth client ID JSON from Google Cloud Console to {cfg.google.credentials_path}, OR\n"
+            f"2. Store secrets: {prov.hint(cfg.google.client_id_secret)} and {prov.hint(cfg.google.client_secret_secret)}",
+            file=sys.stderr,
+        )
+        return EXIT_CONFIG
+
+    class _OAuthServer(http.server.HTTPServer):
+        auth_code: str | None = None
+        auth_error: str | None = None
+
+    class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
+        server: _OAuthServer
+
+        def do_GET(self) -> None:
+            parsed = urllib.parse.urlsplit(self.path)
+            qs = urllib.parse.parse_qs(parsed.query)
+            if "code" in qs:
+                self.server.auth_code = qs["code"][0]
+                html = (
+                    "<!DOCTYPE html><html><head><title>Authorization Successful</title>"
+                    "<style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; "
+                    "display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f8f9fa; color: #202124; }"
+                    ".card { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); text-align: center; max-width: 440px; }"
+                    "h1 { color: #1e8e3e; font-size: 24px; margin-bottom: 12px; }"
+                    "p { color: #5f6368; line-height: 1.5; }</style></head>"
+                    "<body><div class='card'>"
+                    "<h1>✓ Authorization Successful</h1>"
+                    "<p>Google Calendar and Gmail access granted. You can close this browser tab and return to your terminal.</p>"
+                    "</div></body></html>"
+                )
+            else:
+                self.server.auth_error = qs.get("error", ["authorization_denied"])[0]
+                html = f"<!DOCTYPE html><html><body><h1>Authorization Failed</h1><p>{self.server.auth_error}</p></body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(html.encode("utf-8"))
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    server = _OAuthServer(("127.0.0.1", 0), _OAuthCallbackHandler)
+    server.timeout = 1.0
+    port = server.server_address[1]
+    redirect_uri = f"http://localhost:{port}/"
+    url = google_auth.make_auth_url(client_id, redirect_uri=redirect_uri)
+
+    print("\n1. Opening your browser to authorize with Google...")
+    print(f"   {url}\n")
+    with contextlib.suppress(Exception):
+        webbrowser.open(url)
+
+    print("2. Sign in with your Google account, grant Calendar & Gmail permissions.")
+    print("   Waiting for browser callback (or press Ctrl+C to paste code manually)...")
+
+    code = ""
+    start = time.time()
+    try:
+        while not server.auth_code and not server.auth_error and (time.time() - start < 180.0):
+            server.handle_request()
+        if server.auth_code:
+            code = server.auth_code
+            print("\n✓ Authorization code received from browser callback!")
+        elif server.auth_error:
+            print(f"\nError from Google: {server.auth_error}", file=sys.stderr)
+            server.server_close()
+            return EXIT_CONFIG
+    except KeyboardInterrupt:
+        print("\n\nBrowser wait canceled by user.")
+    finally:
+        server.server_close()
+
+    if not code:
+        try:
+            raw = input("Paste the authorization code or redirected URL here: ").strip()
+            if "?" in raw and "code=" in raw:
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(raw).query)
+                code = qs.get("code", [""])[0]
+            else:
+                code = raw
+        except (KeyboardInterrupt, EOFError):
+            print("\nAborted.")
+            return 1
+
+    if not code:
+        print("Error: empty authorization code.", file=sys.stderr)
+        return EXIT_CONFIG
+
+    print("\nExchanging code for refresh token...")
+    try:
+        refresh_token = asyncio.run(
+            google_auth.exchange_auth_code(
+                client_id, client_secret, code, redirect_uri=redirect_uri
+            )
+        )
+    except Exception as exc:
+        print(f"Error exchanging code: {exc}", file=sys.stderr)
+        return EXIT_CONFIG
+
+    if cfg.secrets.provider == "keychain":
+        security_bin = shutil.which("security") or "/usr/bin/security"
+        proc = subprocess.run(
+            [
+                security_bin,
+                "add-generic-password",
+                "-U",
+                "-s",
+                cfg.secrets.service,
+                "-a",
+                cfg.google.token_secret,
+                "-w",
+                refresh_token,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0:
+            print(f"✓ Saved refresh token to macOS Keychain ({cfg.google.token_secret})")
+            return 0
+
+    print(f"✓ Obtained refresh token! Please store it using:\n{prov.hint(cfg.google.token_secret)}")
+    return 0
+
+
+def cmd_tg_auth(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from assistant.secrets import provider_for
+    from assistant.telegram_user import TelegramCredentials
+
+    cfg = _load(args)
+    prov = provider_for(cfg.secrets.provider, cfg.secrets.service, cfg.secrets.file)
+
+    try:
+        creds = TelegramCredentials.load(cfg, prov.get)
+    except Exception as exc:
+        print(f"Error loading credentials: {exc}", file=sys.stderr)
+        return 1
+
+    from telethon import TelegramClient  # type: ignore[import-untyped]
+
+    sess_str = str(creds.session_path)
+    if sess_str.endswith(".session"):
+        sess_str = sess_str[:-8]
+    creds.session_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async def _auth() -> None:
+        client = TelegramClient(sess_str, creds.api_id, creds.api_hash)
+        await client.start()
+        me = await client.get_me()
+        first = getattr(me, "first_name", "") or ""
+        last = getattr(me, "last_name", "") or ""
+        username = f"@{me.username}" if getattr(me, "username", None) else ""
+        name = f"{first} {last}".strip()
+        print(
+            f"✅ Successfully authenticated as {name} ({username}) [ID: {getattr(me, 'id', 'unknown')}]"
+        )
+        print(f"Session saved to {creds.session_path}")
+        await client.disconnect()
+
+    try:
+        asyncio.run(_auth())
+        return 0
+    except Exception as exc:
+        print(f"Authentication failed: {exc}", file=sys.stderr)
+        return 1
+
+
 def cmd_knowme(args: argparse.Namespace) -> int:
     """Re-file memories saved before feature 009 (`operator.*`) under `me.<category>.*`."""
     from assistant import knowme
@@ -288,6 +498,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("secrets", help="print the commands that store the secrets").set_defaults(
         func=cmd_secrets
     )
+    sub.add_parser(
+        "google-auth", help="authorize Google Calendar and Gmail via OAuth 2.0"
+    ).set_defaults(func=cmd_google_auth)
+    sub.add_parser(
+        "tg-auth", help="authorize personal Telegram account via MTProto session"
+    ).set_defaults(func=cmd_tg_auth)
     return p
 
 

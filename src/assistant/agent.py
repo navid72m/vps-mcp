@@ -67,7 +67,7 @@ class TurnResult:
 
 PREFETCH_MAX_CHARS = 1500
 URL_RE = re.compile(r"https?://\S+|\bwww\.\S+", re.IGNORECASE)
-Notify = Callable[[], Awaitable[None]]
+Notify = Callable[..., Awaitable[None]]
 # built-in (non-MCP) tool: (name, args, chat_id, conversation, origin) -> (content, is_error)
 Builtin = Callable[[str, dict[str, Any], int, str, str], Awaitable[tuple[str, bool]]]
 
@@ -327,13 +327,21 @@ class Agent:
             results: list[TextBlock | ImageBlock | ToolUse | ToolResult] = []
             for call in calls:
                 if on_progress is not None:
-                    await on_progress()
+                    try:
+                        await on_progress(f"Running {call.name}...")
+                    except TypeError:
+                        await on_progress()
                 content, is_err, label = await self._run_tool(
                     call, origin, conversation, chat_id, turn
                 )
                 used.append(f"{call.name} {label}")
                 results.append(ToolResult(call.id, content, is_err))
             messages.append(Msg("user", results))
+            if on_progress is not None:
+                try:
+                    await on_progress("Thinking...")
+                except TypeError:
+                    await on_progress()
         ts = self.clock.wall().isoformat(timespec="seconds")
         self.state.add_turn(conversation, ts, "user", f"{note} {text}".strip() if note else text)
         self.state.add_turn(conversation, ts, "assistant", result.text, "; ".join(used)[:1000])

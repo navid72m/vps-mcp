@@ -317,6 +317,15 @@ class TelegramChannel:
         except (httpx2.HTTPError, RuntimeError) as exc:
             log.info("edit failed: %s", exc.__class__.__name__)
 
+    async def delete(self, chat_id: int, message_id: int) -> None:
+        """Delete a message from chat (e.g. temporary waiting indicator)."""
+        if not message_id:
+            return
+        try:
+            await self._call("deleteMessage", chat_id=chat_id, message_id=message_id)
+        except (httpx2.HTTPError, RuntimeError) as exc:
+            log.info("delete failed: %s", exc.__class__.__name__)
+
     async def download(self, file_id: str, limit: int = MAX_DOWNLOAD) -> bytes:
         """A file the operator sent (Bot API getFile; bots may download up to 20 MB)."""
         info = await self._call("getFile", file_id=file_id)

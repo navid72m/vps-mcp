@@ -17,7 +17,18 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from assistant import commands, files, knowme, knowme_runtime, media, web
+from assistant import (
+    calendar,
+    commands,
+    files,
+    gmail,
+    google_auth,
+    knowme,
+    knowme_runtime,
+    media,
+    telegram_user,
+    web,
+)
 from assistant.agent import Agent
 from assistant.approvals import Approvals, Signer
 from assistant.budget import Budget, BudgetExceeded
@@ -89,6 +100,78 @@ class InstanceLock:
             self.fd = None
 
 
+class _WaitIndicator:
+    """Refreshes typing status and displays an elapsed-time spinner if a turn takes longer than delay_s."""
+
+    def __init__(
+        self,
+        channel: TelegramChannel,
+        chat_id: int,
+        delay_s: float = 3.5,
+        interval_s: float = 2.5,
+    ) -> None:
+        self.channel = channel
+        self.chat_id = chat_id
+        self.delay_s = delay_s
+        self.interval_s = interval_s
+        self.msg_id: int = 0
+        self.status: str = "Thinking..."
+        self._stopped = asyncio.Event()
+        self._task: asyncio.Task[None] | None = None
+        self._spinners = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    def set_status(self, status: str) -> None:
+        self.status = status
+
+    async def start(self) -> None:
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
+        last_typing = 0.0
+        spin_idx = 0
+
+        try:
+            while not self._stopped.is_set():
+                now = loop.time()
+                elapsed = int(now - start_time)
+
+                if now - last_typing >= 4.0:
+                    with contextlib.suppress(Exception):
+                        await self.channel.typing(self.chat_id)
+                    last_typing = now
+
+                if (now - start_time) >= self.delay_s:
+                    spin = self._spinners[spin_idx % len(self._spinners)]
+                    spin_idx += 1
+                    text = f"{spin} {self.status} ({elapsed}s)"
+                    try:
+                        if not self.msg_id:
+                            self.msg_id = await self.channel.send(self.chat_id, text)
+                        else:
+                            await self.channel.edit(self.chat_id, self.msg_id, text)
+                    except Exception as exc:
+                        log.debug("failed to update wait indicator: %s", exc)
+
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(self._stopped.wait(), timeout=self.interval_s)
+        except asyncio.CancelledError:
+            pass
+
+    async def stop(self) -> None:
+        self._stopped.set()
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+            self._task = None
+        if self.msg_id:
+            with contextlib.suppress(Exception):
+                await self.channel.delete(self.chat_id, self.msg_id)
+            self.msg_id = 0
+
+
 class Assistant:
     def __init__(
         self,
@@ -128,7 +211,14 @@ class Assistant:
         specs.extend(knowme.SPECS)
         if config.web.enabled:
             specs.extend(web.specs())
+        if config.google.enabled:
+            specs.extend(self.calendar_specs())
+            specs.extend(self.email_specs())
+        if config.telegram_user.enabled:
+            specs.extend(self.tg_user_specs())
         self.web_transport: Any = None  # tests inject a mock transport
+        self.google_transport: Any = None  # tests inject a mock transport
+        self.tg_user_client: telegram_user.TelegramUserClient | None = None
         self.web_resolver: web.Resolver = web.default_resolver
         if self.router is not None:
             self.budget.prices = self.router.profile.prices
@@ -143,6 +233,8 @@ class Assistant:
         # facts mentioned without a request to remember: offered at the end of the conversation
         self.pending_suggestions: dict[str, list[dict[str, Any]]] = {}
         self.coalesce_s = coalesce_s
+        self.wait_indicator_delay_s: float = 3.5
+        self.wait_indicator_interval_s: float = 2.5
         self.background: set[asyncio.Task[Any]] = set()
         self.started = self.clock.wall()
         self.sleep = SleepDetector(self.clock)
@@ -196,6 +288,9 @@ class Assistant:
         for t in tasks:
             t.cancel()
         self.state.kv_set("clean_shutdown", "1")
+        if self.tg_user_client is not None:
+            with contextlib.suppress(Exception):
+                await self.tg_user_client.aclose()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await asyncio.shield(self.hub.close())
 
@@ -295,12 +390,24 @@ class Assistant:
             if not images and not attached and not text:
                 return ""
 
-        async def progress() -> None:
-            await self.channel.typing(chat_id)
+        indicator = _WaitIndicator(
+            self.channel,
+            chat_id,
+            delay_s=self.wait_indicator_delay_s,
+            interval_s=self.wait_indicator_interval_s,
+        )
+        await indicator.start()
+
+        async def progress(status: str = "") -> None:
+            if status:
+                indicator.set_status(status)
+            with contextlib.suppress(Exception):
+                await self.channel.typing(chat_id)
 
         try:
             self.budget.check_day()
         except BudgetExceeded as exc:
+            await indicator.stop()
             await self.channel.send(chat_id, f"⛔ {exc}. Raise the limit or wait until tomorrow.")
             return ""
         try:
@@ -315,9 +422,13 @@ class Assistant:
                 note=note,
             )
         except asyncio.CancelledError:
+            await indicator.stop()
             with contextlib.suppress(Exception):
                 await self.channel.send(chat_id, "⏹ Cancelled.")
             raise
+        finally:
+            await indicator.stop()
+
         reply = result.text
         if origin == "chat" and self.state.operator_turn(cid) == 1 and self.memory.available:
             reply += knowme_runtime.maybe_offer_interview(
@@ -579,6 +690,268 @@ class Assistant:
             },
         )
 
+    def calendar_specs(self) -> list[ToolSpec]:
+        return [
+            ToolSpec(
+                "calendar__events",
+                "List upcoming events and meetings from Google Calendar within a time window.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "time_min": {
+                            "type": "string",
+                            "description": "Start datetime in ISO-8601 (e.g. 2026-11-12T00:00:00Z) or YYYY-MM-DD. Defaults to today.",
+                        },
+                        "time_max": {
+                            "type": "string",
+                            "description": "End datetime in ISO-8601 or YYYY-MM-DD. Defaults to +7 days.",
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Optional search term to filter events by title, description or attendee.",
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of events to return (default 10, max 50).",
+                        },
+                    },
+                },
+            ),
+            ToolSpec(
+                "calendar__create",
+                "Create a new event in Google Calendar.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "summary": {
+                            "type": "string",
+                            "description": "Title of the event or meeting.",
+                        },
+                        "start": {
+                            "type": "string",
+                            "description": "Start time in ISO-8601 (e.g. 2026-11-13T10:00:00+03:30) or YYYY-MM-DD.",
+                        },
+                        "end": {
+                            "type": "string",
+                            "description": "End time in ISO-8601 or YYYY-MM-DD.",
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Optional notes or agenda for the meeting.",
+                        },
+                        "location": {
+                            "type": "string",
+                            "description": "Optional physical location or video meeting link.",
+                        },
+                        "attendees": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional list of attendee email addresses.",
+                        },
+                    },
+                    "required": ["summary", "start", "end"],
+                },
+            ),
+            ToolSpec(
+                "calendar__delete",
+                "Delete an event from Google Calendar. Needs the operator's approval.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "event_id": {
+                            "type": "string",
+                            "description": "The unique Google Calendar event ID to delete.",
+                        },
+                    },
+                    "required": ["event_id"],
+                },
+            ),
+        ]
+
+    def email_specs(self) -> list[ToolSpec]:
+        return [
+            ToolSpec(
+                "email__inbox",
+                "List recent or unread emails from Gmail inbox.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "unread_only": {
+                            "type": "boolean",
+                            "description": "Only return unread emails (default true).",
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of messages to return (default 5, max 20).",
+                        },
+                    },
+                },
+            ),
+            ToolSpec(
+                "email__search",
+                "Search Gmail messages using query syntax (e.g. from:x, subject:y, is:unread, after:2026-11-01).",
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Gmail search query string.",
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of messages to return (default 5, max 20).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
+            ToolSpec(
+                "email__read",
+                "Read the full body of an email message safely.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "message_id": {
+                            "type": "string",
+                            "description": "The unique Gmail message ID to read.",
+                        },
+                    },
+                    "required": ["message_id"],
+                },
+            ),
+            ToolSpec(
+                "email__draft",
+                "Create a new email draft in Gmail without sending it.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "to": {"type": "string", "description": "Recipient email address."},
+                        "subject": {"type": "string", "description": "Subject of the email."},
+                        "body": {"type": "string", "description": "Body text of the email."},
+                        "thread_id": {
+                            "type": "string",
+                            "description": "Optional thread ID to draft a reply in thread.",
+                        },
+                    },
+                    "required": ["to", "subject", "body"],
+                },
+            ),
+            ToolSpec(
+                "email__send",
+                "Send an email via Gmail. Needs the operator's approval.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "to": {"type": "string", "description": "Recipient email address."},
+                        "subject": {"type": "string", "description": "Subject of the email."},
+                        "body": {"type": "string", "description": "Body text of the email."},
+                        "thread_id": {
+                            "type": "string",
+                            "description": "Optional thread ID to reply in thread.",
+                        },
+                    },
+                    "required": ["to", "subject", "body"],
+                },
+            ),
+        ]
+
+    def tg_user_specs(self) -> list[ToolSpec]:
+        return [
+            ToolSpec(
+                "tg_user__inbox",
+                "List dialogs, unread messages, or find chats/groups/channels by title via optional query.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Optional search string to find a chat, group, or channel by title.",
+                        },
+                        "unread_only": {
+                            "type": "boolean",
+                            "description": "Only return dialogs with unread messages (default true, automatically false if query is provided).",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of dialogs to return (default 10, max 30).",
+                        },
+                    },
+                },
+            ),
+            ToolSpec(
+                "tg_user__search",
+                "Search personal Telegram messages and find matching chat/group/channel titles.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Keyword, phrase, or chat title to search for.",
+                        },
+                        "chat": {
+                            "type": "string",
+                            "description": "Target chat username, title, ID, or 'me' for Saved Messages. If omitted, searches globally.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of matching messages (default 10, max 30).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
+            ToolSpec(
+                "tg_user__read",
+                "Read recent message history from a specific personal chat, group, or channel.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "chat": {
+                            "type": "string",
+                            "description": "Chat/group title (e.g. 'قلمرو شیطانی همدان'), username (@username), phone number, chat ID, or 'me' for Saved Messages.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Number of recent messages to retrieve (default 15, max 50).",
+                        },
+                    },
+                    "required": ["chat"],
+                },
+            ),
+            ToolSpec(
+                "tg_user__send",
+                "Send a message to a person, group, channel, or Saved Messages from your personal Telegram account. Needs the operator's approval.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "recipient": {
+                            "type": "string",
+                            "description": "Group/channel/user title (e.g. 'قلمرو شیطانی همدان'), username (@user), phone number, chat ID, or 'me'.",
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "The exact text message to send.",
+                        },
+                    },
+                    "required": ["recipient", "message"],
+                },
+            ),
+            ToolSpec(
+                "tg_user__save",
+                "Save a note, snippet, or reminder to your personal Telegram 'Saved Messages' chat.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "Content to store in Saved Messages.",
+                        },
+                    },
+                    "required": ["text"],
+                },
+            ),
+        ]
+
     async def builtin(
         self,
         name: str,
@@ -591,6 +964,12 @@ class Assistant:
             return await knowme_runtime.call(self, name, args, chat_id, conversation, origin)
         if name.startswith("web__"):
             return await self.web_tool(name, args)
+        if name.startswith("calendar__"):
+            return await self.calendar_tool(name, args, chat_id, conversation, origin)
+        if name.startswith("email__"):
+            return await self.email_tool(name, args, chat_id, conversation, origin)
+        if name.startswith("tg_user__"):
+            return await self.tg_user_tool(name, args, chat_id, conversation, origin)
         if name == "assistant__switch_model":
             if self.router is None:
                 return "no router configured", True
@@ -957,6 +1336,300 @@ class Assistant:
                 return envelope(page)
         except web.WebError as exc:
             self.state.audit("web", target=name.removeprefix("web__"), outcome=str(exc)[:200])
+            return envelope({"error": str(exc)}, ok=False)
+        return envelope({"error": f"unknown tool {name}"}, ok=False)
+
+    def google_auth(self) -> google_auth.GoogleAuth:
+        creds = google_auth.GoogleCredentials.load(self.config, self.secret)
+        return google_auth.GoogleAuth(
+            creds,
+            transport=self.google_transport,
+            timeout=self.config.google.timeout_s,
+        )
+
+    async def calendar_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        chat_id: int,
+        conversation: str,
+        origin: str,
+    ) -> tuple[str, bool]:
+        def envelope(content: Any, ok: bool = True) -> tuple[str, bool]:
+            return json.dumps(
+                {
+                    "kind": "tool_output",
+                    "server": "calendar",
+                    "untrusted": True,
+                    "content": content,
+                },
+                ensure_ascii=False,
+            ), not ok
+
+        try:
+            auth = self.google_auth()
+            if name == "calendar__events":
+                events = await calendar.list_events(
+                    auth,
+                    time_min=args.get("time_min"),
+                    time_max=args.get("time_max"),
+                    query=str(args.get("query", "")),
+                    max_results=int(args.get("max_results") or self.config.google.max_events),
+                    timezone=self.config.assistant.timezone,
+                )
+                self.state.audit("calendar", target="events", outcome=f"ok {len(events)} events")
+                return envelope({"events": events})
+
+            if name == "calendar__create":
+                res = await calendar.create_event(
+                    auth,
+                    summary=str(args.get("summary", "")),
+                    start=str(args.get("start", "")),
+                    end=str(args.get("end", "")),
+                    description=str(args.get("description", "")),
+                    location=str(args.get("location", "")),
+                    attendees=args.get("attendees"),
+                    timezone=self.config.assistant.timezone,
+                )
+                self.state.audit("calendar", target="create", outcome=f"ok {res.get('id')}")
+                return envelope(res)
+
+            if name == "calendar__delete":
+                event_id = str(args.get("event_id", ""))
+                preview = f"Delete Google Calendar event:\nID: {event_id}"
+                outcome = await self.approvals.request(
+                    chat_id=chat_id,
+                    conversation=conversation,
+                    server="calendar",
+                    tool="delete",
+                    args=args,
+                    shown_args=args,
+                    preview=preview,
+                    origin=origin,
+                )
+                if outcome.status != "approved":
+                    return envelope(
+                        {"ok": False, "error": f"not done: {outcome.status} by the operator"},
+                        ok=False,
+                    )
+                if not self.approvals.bound(outcome.approval_id, "calendar", "delete", args):
+                    return envelope(
+                        {"ok": False, "error": "approval does not match the call"}, ok=False
+                    )
+                self.approvals.mark_executed(outcome.approval_id)
+
+                res = await calendar.delete_event(auth, event_id)
+                self.state.audit("calendar", target="delete", outcome="ok")
+                return envelope(res)
+
+        except (google_auth.GoogleAuthError, calendar.CalendarError) as exc:
+            self.state.audit(
+                "calendar", target=name.removeprefix("calendar__"), outcome=str(exc)[:200]
+            )
+            return envelope({"error": str(exc)}, ok=False)
+        return envelope({"error": f"unknown tool {name}"}, ok=False)
+
+    async def email_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        chat_id: int,
+        conversation: str,
+        origin: str,
+    ) -> tuple[str, bool]:
+        def envelope(content: Any, ok: bool = True) -> tuple[str, bool]:
+            return json.dumps(
+                {"kind": "tool_output", "server": "email", "untrusted": True, "content": content},
+                ensure_ascii=False,
+            ), not ok
+
+        try:
+            auth = self.google_auth()
+            if name == "email__inbox":
+                msgs = await gmail.list_inbox(
+                    auth,
+                    unread_only=bool(args.get("unread_only", True)),
+                    max_results=int(args.get("max_results") or self.config.google.max_emails),
+                )
+                self.state.audit("email", target="inbox", outcome=f"ok {len(msgs)} messages")
+                return envelope({"messages": msgs})
+
+            if name == "email__search":
+                msgs = await gmail.search_emails(
+                    auth,
+                    query=str(args.get("query", "")),
+                    max_results=int(args.get("max_results") or self.config.google.max_emails),
+                )
+                self.state.audit("email", target="search", outcome=f"ok {len(msgs)} messages")
+                return envelope({"messages": msgs})
+
+            if name == "email__read":
+                msg = await gmail.read_email(auth, str(args.get("message_id", "")))
+                self.state.audit(
+                    "email", target="read", outcome=f"ok {len(msg.get('body', ''))} chars"
+                )
+                return envelope(msg)
+
+            if name == "email__draft":
+                res = await gmail.create_draft(
+                    auth,
+                    to=str(args.get("to", "")),
+                    subject=str(args.get("subject", "")),
+                    body=str(args.get("body", "")),
+                    thread_id=args.get("thread_id"),
+                )
+                self.state.audit("email", target="draft", outcome=f"ok {res.get('draft_id')}")
+                return envelope(res)
+
+            if name == "email__send":
+                to = str(args.get("to", ""))
+                subject = str(args.get("subject", ""))
+                body = str(args.get("body", ""))
+                preview = f"Send email via Gmail:\nTo: {to}\nSubject: {subject}\n\n{body[:300]}"
+                outcome = await self.approvals.request(
+                    chat_id=chat_id,
+                    conversation=conversation,
+                    server="email",
+                    tool="send",
+                    args=args,
+                    shown_args={"to": to, "subject": subject},
+                    preview=preview,
+                    origin=origin,
+                )
+                if outcome.status != "approved":
+                    return envelope(
+                        {"ok": False, "error": f"not done: {outcome.status} by the operator"},
+                        ok=False,
+                    )
+                if not self.approvals.bound(outcome.approval_id, "email", "send", args):
+                    return envelope(
+                        {"ok": False, "error": "approval does not match the call"}, ok=False
+                    )
+                self.approvals.mark_executed(outcome.approval_id)
+
+                res = await gmail.send_email(
+                    auth,
+                    to=to,
+                    subject=subject,
+                    body=body,
+                    thread_id=args.get("thread_id"),
+                )
+                self.state.audit("email", target="send", outcome="ok")
+                return envelope(res)
+
+        except (google_auth.GoogleAuthError, gmail.GmailError) as exc:
+            self.state.audit("email", target=name.removeprefix("email__"), outcome=str(exc)[:200])
+            return envelope({"error": str(exc)}, ok=False)
+        return envelope({"error": f"unknown tool {name}"}, ok=False)
+
+    def telegram_user_client(self) -> telegram_user.TelegramUserClient:
+        if self.tg_user_client is not None:
+            return self.tg_user_client
+        creds = telegram_user.TelegramCredentials.load(self.config, self.secret)
+        self.tg_user_client = telegram_user.TelegramUserClient(creds)
+        return self.tg_user_client
+
+    async def tg_user_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        chat_id: int,
+        conversation: str,
+        origin: str,
+    ) -> tuple[str, bool]:
+        def envelope(content: Any, ok: bool = True) -> tuple[str, bool]:
+            return json.dumps(
+                {
+                    "kind": "tool_output",
+                    "server": "telegram_user",
+                    "untrusted": True,
+                    "content": content,
+                },
+                ensure_ascii=False,
+            ), not ok
+
+        try:
+            client = self.telegram_user_client()
+            if name == "tg_user__inbox":
+                query = str(args.get("query", "")).strip()
+                unread_default = False if query else True
+                unread_only = bool(args.get("unread_only", unread_default))
+                limit = int(args.get("limit") or self.config.telegram_user.max_messages)
+                dialogs = await client.list_inbox(unread_only=unread_only, query=query, limit=limit)
+                self.state.audit(
+                    "telegram_user", target="inbox", outcome=f"ok {len(dialogs)} dialogs"
+                )
+                return envelope({"dialogs": dialogs})
+
+            if name == "tg_user__search":
+                query = str(args.get("query", ""))
+                chat = str(args.get("chat", ""))
+                limit = int(args.get("limit") or self.config.telegram_user.max_messages)
+                res = await client.search_messages(query=query, chat=chat, limit=limit)
+                self.state.audit(
+                    "telegram_user",
+                    target="search",
+                    outcome=f"ok {len(res.get('messages', []))} msgs, {len(res.get('chats', []))} chats",
+                )
+                return envelope(res)
+
+            if name == "tg_user__read":
+                chat = str(args.get("chat", ""))
+                limit = int(args.get("limit") or self.config.telegram_user.max_messages)
+                messages = await client.read_history(chat=chat, limit=limit)
+                self.state.audit(
+                    "telegram_user", target="read", outcome=f"ok {len(messages)} messages"
+                )
+                return envelope({"messages": messages})
+
+            if name == "tg_user__save":
+                text = str(args.get("text", ""))
+                res = await client.save_to_saved(text=text)
+                self.state.audit(
+                    "telegram_user",
+                    target="save",
+                    outcome=f"ok msg {res.get('message_id')}",
+                )
+                return envelope(res)
+
+            if name == "tg_user__send":
+                recipient = str(args.get("recipient", ""))
+                msg_text = str(args.get("message", ""))
+                preview = (
+                    f"Send Telegram message from personal account:\n"
+                    f"To: {recipient}\n\n{msg_text[:300]}"
+                )
+                outcome = await self.approvals.request(
+                    chat_id=chat_id,
+                    conversation=conversation,
+                    server="telegram_user",
+                    tool="send",
+                    args=args,
+                    shown_args={"recipient": recipient, "message": msg_text[:80]},
+                    preview=preview,
+                    origin=origin,
+                )
+                if outcome.status != "approved":
+                    return envelope(
+                        {"ok": False, "error": f"not done: {outcome.status} by the operator"},
+                        ok=False,
+                    )
+                if not self.approvals.bound(outcome.approval_id, "telegram_user", "send", args):
+                    return envelope(
+                        {"ok": False, "error": "approval does not match the call"}, ok=False
+                    )
+                self.approvals.mark_executed(outcome.approval_id)
+
+                res = await client.send_message(recipient=recipient, text=msg_text)
+                self.state.audit("telegram_user", target="send", outcome="ok")
+                return envelope(res)
+
+        except (telegram_user.TelegramUserError, Exception) as exc:
+            self.state.audit(
+                "telegram_user",
+                target=name.removeprefix("tg_user__"),
+                outcome=str(exc)[:200],
+            )
             return envelope({"error": str(exc)}, ok=False)
         return envelope({"error": f"unknown tool {name}"}, ok=False)
 
