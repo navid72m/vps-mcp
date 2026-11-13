@@ -115,6 +115,16 @@ async def test_runtime_tools_execution(tmp_path: Path, mock_kb: KnowledgeBase) -
     assert len(chunks) >= 1
     assert chunks[0]["chunk_index"] == 0
 
+    # 6. knowledge_base__search alias
+    out, is_err = await h.a.builtin(
+        "knowledge_base__search",
+        {"query": "qubits", "top_k": 1},
+        chat_id=111,
+    )
+    assert not is_err
+    data = json.loads(out)
+    assert len(data["content"]["results"]) > 0
+
 
 @pytest.mark.asyncio
 async def test_remove_approval_flow(tmp_path: Path, mock_kb: KnowledgeBase) -> None:

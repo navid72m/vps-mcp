@@ -26,6 +26,7 @@ BUILTIN_PREFIXES = (
     "email__",
     "tg_user__",
     "kb__",
+    "knowledge_base__",
 )
 BUILTIN_CORE = (
     "memory__search",

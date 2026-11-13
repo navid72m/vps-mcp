@@ -1088,6 +1088,8 @@ class Assistant:
             return await self.email_tool(name, args, chat_id, conversation, origin)
         if name.startswith("tg_user__"):
             return await self.tg_user_tool(name, args, chat_id, conversation, origin)
+        if name.startswith("knowledge_base__"):
+            name = "kb__" + name.removeprefix("knowledge_base__")
         if name.startswith("kb__"):
             return await self.kb_tool(name, args, chat_id, conversation, origin)
         if name == "assistant__switch_model":
