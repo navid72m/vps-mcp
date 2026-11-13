@@ -70,6 +70,7 @@ AUDIT_KINDS = (
     "calendar",
     "email",
     "telegram_user",
+    "knowledge_base",
 )
 
 

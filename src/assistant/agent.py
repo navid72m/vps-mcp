@@ -364,7 +364,12 @@ class Agent:
                 content, is_err = self.load_toolsets(conversation, origin, names, turn)
                 return content, is_err, "error" if is_err else "ok"
             cat = self.catalog()
-            owner = cat.toolset_of(call.name)
+            canonical_name = (
+                "kb__" + call.name.removeprefix("knowledge_base__")
+                if call.name.startswith("knowledge_base__")
+                else call.name
+            )
+            owner = cat.toolset_of(canonical_name)
             if owner is not None:
                 if owner not in self.state.toolsets_active(conversation):
                     # a known, allowed tool: load its toolset and run the call (policy and
@@ -383,11 +388,15 @@ class Agent:
                 outcome="error" if is_err else "ok",
             )
             return content, is_err, "error" if is_err else "ok"
-        if self.builtin is not None and call.name in {t.name for t in self.builtin_specs}:
+        effective_name = call.name
+        if effective_name.startswith("knowledge_base__"):
+            effective_name = "kb__" + effective_name.removeprefix("knowledge_base__")
+
+        if self.builtin is not None and effective_name in {t.name for t in self.builtin_specs}:
             content, is_err = await self.builtin(
-                call.name, dict(call.input), chat_id, conversation, origin
+                effective_name, dict(call.input), chat_id, conversation, origin
             )
-            server, _, tool = call.name.partition("__")
+            server, _, tool = effective_name.partition("__")
             self.state.audit(
                 "tool_call",
                 conversation=conversation,

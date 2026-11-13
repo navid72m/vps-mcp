@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 HELP = (
     "Commands: /new · /done · /status · /usage · /remind <in 15m|at 14:00> <text> · /schedules · "
     "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /agenda [today|tomorrow|week] · "
-    "/inbox · /tg [unread|chats|search <q>] · /ls [path] · /cat <path> · /send <path> · /stop · /resume · /forget · /model [name] · "
+    "/inbox · /tg [unread|chats|search <q>] · /kb [list|search <q>|add <path>] · /ls [path] · /cat <path> · /send <path> · /stop · /resume · /forget · /model [name] · "
     "/tools · /me [all|export] · /interview"
 )
 
@@ -49,6 +49,7 @@ async def dispatch(a: Assistant, chat_id: int, text: str) -> None:
         "/agenda": agenda,
         "/inbox": inbox,
         "/tg": tg,
+        "/kb": kb,
         "/cancel": cancel,
     }.get(cmd)
     if handler is None:
@@ -501,3 +502,68 @@ async def tg(a: Assistant, chat_id: int, rest: str) -> None:
             await a.channel.send(chat_id, "Usage: /tg [unread|chats|search <query>]")
     except Exception as exc:
         await a.channel.send(chat_id, f"⚠️ Telegram error: {exc}")
+
+
+async def kb(a: Assistant, chat_id: int, rest: str) -> None:
+    if not a.config.knowledge_base.enabled:
+        await a.channel.send(chat_id, "Knowledge Base is not enabled in assistant.toml.")
+        return
+
+    subcmd, _, arg = rest.partition(" ")
+    subcmd = subcmd.lower().strip()
+    arg = arg.strip()
+
+    try:
+        engine = a.knowledge_base_engine()
+        if subcmd in ("", "list", "all"):
+            docs = engine.list_documents()
+            if not docs:
+                await a.channel.send(
+                    chat_id,
+                    "📚 Knowledge Base is empty. Ingest books/papers with `/kb add <path>`.",
+                )
+                return
+            lines = [f"📚 **Knowledge Base Documents** ({len(docs)}):\n"]
+            for d in docs:
+                author_str = (
+                    f" by {d['author']}" if d.get("author") and d["author"] != "Unknown" else ""
+                )
+                size_kb = int(d.get("file_size", 0) / 1024)
+                lines.append(
+                    f"• **{d['title']}**{author_str}\n"
+                    f"  {d['chunk_count']} chunks · {size_kb} KB [ID: `{d['doc_id']}`]"
+                )
+            await a.channel.send(chat_id, "\n".join(lines))
+
+        elif subcmd == "search":
+            if not arg:
+                await a.channel.send(chat_id, "Usage: /kb search <query>")
+                return
+            results = engine.search(query=arg, top_k=a.config.knowledge_base.top_k)
+            if not results:
+                await a.channel.send(chat_id, f"No passages found matching '{arg}'.")
+                return
+            lines = [f"🔍 **Knowledge Base Results for '{arg}'** ({len(results)}):\n"]
+            for r in results:
+                page_str = f"page {r['page']}" if r.get("page") else f"chunk {r['chunk_index'] + 1}"
+                snippet = r.get("text", "").replace("\n", " ")[:160]
+                lines.append(f"• **{r['title']}** ({page_str}, score {r['score']}):\n  _{snippet}_")
+            await a.channel.send(chat_id, "\n".join(lines))
+
+        elif subcmd == "add":
+            if not arg:
+                await a.channel.send(chat_id, "Usage: /kb add <path/to/document.pdf>")
+                return
+            res = engine.ingest_file(arg)
+            status_str = (
+                "Already existed" if res.get("already_existed") else "Successfully ingested"
+            )
+            await a.channel.send(
+                chat_id,
+                f"✅ {status_str}: **{res['title']}** ({res['chunk_count']} chunks indexed) [ID: `{res['doc_id']}`]",
+            )
+
+        else:
+            await a.channel.send(chat_id, "Usage: /kb [list | search <query> | add <path>]")
+    except Exception as exc:
+        await a.channel.send(chat_id, f"⚠️ Knowledge Base error: {exc}")
