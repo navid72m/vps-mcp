@@ -476,20 +476,27 @@ async def tg(a: Assistant, chat_id: int, rest: str) -> None:
             if not arg:
                 await a.channel.send(chat_id, "Usage: /tg search <query>")
                 return
-            msgs = await client.search_messages(
-                query=arg, limit=a.config.telegram_user.max_messages
-            )
-            if not msgs:
-                await a.channel.send(chat_id, f"No messages found matching '{arg}'.")
+            res = await client.search_messages(query=arg, limit=a.config.telegram_user.max_messages)
+            matching_chats = res.get("chats", [])
+            msgs = res.get("messages", [])
+            if not msgs and not matching_chats:
+                await a.channel.send(chat_id, f"No chats or messages found matching '{arg}'.")
                 return
-            lines = [f"🔍 Found {len(msgs)} message(s) for '{arg}':\n"]
-            for m in msgs:
-                sender = m.get("sender_name") or "Unknown"
-                chat_title = m.get("chat_title") or str(m.get("chat_id", ""))
-                date = m.get("date", "")[:16]
-                text_snippet = m.get("text", "").replace("\n", " ")[:120]
-                lines.append(f"• **{sender}** in *{chat_title}* ({date}):\n  {text_snippet}")
-            await a.channel.send(chat_id, "\n".join(lines))
+            lines = []
+            if matching_chats:
+                lines.append(f"📁 Matching chat(s) ({len(matching_chats)}):")
+                for c in matching_chats:
+                    lines.append(f"• **{c['title']}** [ID: `{c['id']}`]")
+                lines.append("")
+            if msgs:
+                lines.append(f"🔍 Message(s) ({len(msgs)}):")
+                for m in msgs:
+                    sender = m.get("sender_name") or "Unknown"
+                    chat_title = m.get("chat_title") or str(m.get("chat_id", ""))
+                    date = m.get("date", "")[:16]
+                    text_snippet = m.get("text", "").replace("\n", " ")[:120]
+                    lines.append(f"• **{sender}** in *{chat_title}* ({date}):\n  {text_snippet}")
+            await a.channel.send(chat_id, "\n".join(lines).strip())
         else:
             await a.channel.send(chat_id, "Usage: /tg [unread|chats|search <query>]")
     except Exception as exc:

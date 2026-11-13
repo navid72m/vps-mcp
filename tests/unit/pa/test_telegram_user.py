@@ -214,15 +214,22 @@ async def test_telegram_user_client_flow(tmp_path: Path) -> None:
     assert unread[0]["title"] == "Alice"
     assert unread[1]["title"] == "News Channel"
 
+    # list_inbox with query filter
+    matched_query = await client.list_inbox(query="News")
+    assert len(matched_query) == 1
+    assert matched_query[0]["title"] == "News Channel"
+
     # list_inbox without unread filter
     all_dialogs = await client.list_inbox(unread_only=False)
     assert len(all_dialogs) == 3
 
     # 2. search_messages
-    matches = await client.search_messages("invoice")
-    assert len(matches) == 2
-    assert "[untrusted Telegram message" in matches[0]["text"]
-    assert matches[0]["sender_name"] == "Alice"
+    res = await client.search_messages("Alice")
+    assert len(res["chats"]) == 1
+    assert res["chats"][0]["title"] == "Alice"
+    assert len(res["messages"]) == 2
+    assert "[untrusted Telegram message" in res["messages"][0]["text"]
+    assert res["messages"][0]["sender_name"] == "Alice"
 
     # 3. read_history
     history = await client.read_history("@alice", limit=5)

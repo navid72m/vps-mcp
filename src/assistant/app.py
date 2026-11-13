@@ -859,13 +859,17 @@ class Assistant:
         return [
             ToolSpec(
                 "tg_user__inbox",
-                "List unread dialogs and recent incoming messages across personal Telegram chats.",
+                "List dialogs, unread messages, or find chats/groups/channels by title via optional query.",
                 {
                     "type": "object",
                     "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Optional search string to find a chat, group, or channel by title.",
+                        },
                         "unread_only": {
                             "type": "boolean",
-                            "description": "Only return dialogs with unread messages (default true).",
+                            "description": "Only return dialogs with unread messages (default true, automatically false if query is provided).",
                         },
                         "limit": {
                             "type": "integer",
@@ -876,13 +880,13 @@ class Assistant:
             ),
             ToolSpec(
                 "tg_user__search",
-                "Search personal Telegram messages across chats or within a specific chat.",
+                "Search personal Telegram messages and find matching chat/group/channel titles.",
                 {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Keyword or phrase to search for.",
+                            "description": "Keyword, phrase, or chat title to search for.",
                         },
                         "chat": {
                             "type": "string",
@@ -904,7 +908,7 @@ class Assistant:
                     "properties": {
                         "chat": {
                             "type": "string",
-                            "description": "Username (@username), chat title, phone number, chat ID, or 'me' for Saved Messages.",
+                            "description": "Chat/group title (e.g. 'قلمرو شیطانی همدان'), username (@username), phone number, chat ID, or 'me' for Saved Messages.",
                         },
                         "limit": {
                             "type": "integer",
@@ -916,13 +920,13 @@ class Assistant:
             ),
             ToolSpec(
                 "tg_user__send",
-                "Send a message to a person, group, or Saved Messages from your personal Telegram account. Needs the operator's approval.",
+                "Send a message to a person, group, channel, or Saved Messages from your personal Telegram account. Needs the operator's approval.",
                 {
                     "type": "object",
                     "properties": {
                         "recipient": {
                             "type": "string",
-                            "description": "Username (@user), phone number, chat title, or 'me' for Saved Messages.",
+                            "description": "Group/channel/user title (e.g. 'قلمرو شیطانی همدان'), username (@user), phone number, chat ID, or 'me'.",
                         },
                         "message": {
                             "type": "string",
@@ -1547,9 +1551,11 @@ class Assistant:
         try:
             client = self.telegram_user_client()
             if name == "tg_user__inbox":
-                unread_only = bool(args.get("unread_only", True))
+                query = str(args.get("query", "")).strip()
+                unread_default = False if query else True
+                unread_only = bool(args.get("unread_only", unread_default))
                 limit = int(args.get("limit") or self.config.telegram_user.max_messages)
-                dialogs = await client.list_inbox(unread_only=unread_only, limit=limit)
+                dialogs = await client.list_inbox(unread_only=unread_only, query=query, limit=limit)
                 self.state.audit(
                     "telegram_user", target="inbox", outcome=f"ok {len(dialogs)} dialogs"
                 )
@@ -1559,11 +1565,13 @@ class Assistant:
                 query = str(args.get("query", ""))
                 chat = str(args.get("chat", ""))
                 limit = int(args.get("limit") or self.config.telegram_user.max_messages)
-                messages = await client.search_messages(query=query, chat=chat, limit=limit)
+                res = await client.search_messages(query=query, chat=chat, limit=limit)
                 self.state.audit(
-                    "telegram_user", target="search", outcome=f"ok {len(messages)} messages"
+                    "telegram_user",
+                    target="search",
+                    outcome=f"ok {len(res.get('messages', []))} msgs, {len(res.get('chats', []))} chats",
                 )
-                return envelope({"messages": messages})
+                return envelope(res)
 
             if name == "tg_user__read":
                 chat = str(args.get("chat", ""))

@@ -151,10 +151,17 @@ class TelegramUserClient:
                 await self._raw_client.disconnect()
             self._raw_client = None
 
-    async def list_inbox(self, unread_only: bool = True, limit: int = 15) -> list[dict[str, Any]]:
+    async def list_inbox(
+        self, unread_only: bool = True, query: str = "", limit: int = 15
+    ) -> list[dict[str, Any]]:
         client = await self._get_client()
         dialogs = []
-        async for d in client.iter_dialogs(limit=limit * 2):
+        q_clean = query.strip().lower()
+        max_scan = 250 if q_clean else limit * 3
+        async for d in client.iter_dialogs(limit=max_scan):
+            d_name = d.name or ""
+            if q_clean and q_clean not in d_name.lower():
+                continue
             if unread_only and not d.unread_count:
                 continue
             last_msg = ""
@@ -166,7 +173,7 @@ class TelegramUserClient:
             dialogs.append(
                 {
                     "id": d.id,
-                    "title": d.name or str(d.id),
+                    "title": d_name or str(d.id),
                     "unread_count": d.unread_count,
                     "is_user": d.is_user,
                     "is_group": d.is_group,
@@ -179,13 +186,31 @@ class TelegramUserClient:
                 break
         return dialogs
 
-    async def search_messages(
-        self, query: str, chat: str = "", limit: int = 10
-    ) -> list[dict[str, Any]]:
+    async def search_messages(self, query: str, chat: str = "", limit: int = 10) -> dict[str, Any]:
         client = await self._get_client()
         entity: Any = None
         if chat:
             entity = await self._resolve_entity(client, chat)
+
+        matching_chats: list[dict[str, Any]] = []
+        if not chat:
+            q_clean = query.strip().lower()
+            if q_clean:
+                async for d in client.iter_dialogs(limit=250):
+                    d_name = d.name or ""
+                    if q_clean in d_name.lower():
+                        matching_chats.append(
+                            {
+                                "id": d.id,
+                                "title": d_name,
+                                "unread_count": d.unread_count,
+                                "is_user": d.is_user,
+                                "is_group": d.is_group,
+                                "is_channel": d.is_channel,
+                            }
+                        )
+                    if len(matching_chats) >= 5:
+                        break
 
         out = []
         async for m in client.iter_messages(entity, search=query, limit=limit):
@@ -204,7 +229,7 @@ class TelegramUserClient:
                     "is_outgoing": bool(m.out),
                 }
             )
-        return out
+        return {"chats": matching_chats, "messages": out}
 
     async def read_history(self, chat: str, limit: int = 15) -> list[dict[str, Any]]:
         client = await self._get_client()
@@ -260,5 +285,17 @@ class TelegramUserClient:
         # If integer ID
         if target.isdigit() or (target.startswith("-") and target[1:].isdigit()):
             return await client.get_entity(int(target))
-        # If username or phone or name
-        return await client.get_entity(target)
+        try:
+            return await client.get_entity(target)
+        except Exception:
+            # Fallback: match by title across dialogs
+            t_lower = target.lower()
+            async for d in client.iter_dialogs(limit=250):
+                d_name = (d.name or "").lower()
+                if d_name == t_lower:
+                    return d.entity
+            async for d in client.iter_dialogs(limit=250):
+                d_name = (d.name or "").lower()
+                if t_lower in d_name:
+                    return d.entity
+            raise

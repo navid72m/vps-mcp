@@ -162,7 +162,7 @@ async def test_slash_command_tg(tmp_path: Path, fake_client: TelegramUserClient)
     # /tg search query
     await h.say("/tg search report")
     await h.finish()
-    assert any("🔍 Found 2 message(s)" in m["text"] for m in h.tg.sent)
+    assert any("Message(s) (2)" in m["text"] for m in h.tg.sent)
 
     # /tg unknown
     await h.say("/tg invalid")
