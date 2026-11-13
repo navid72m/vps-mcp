@@ -192,6 +192,15 @@ class GoogleSection(_Strict):
     timeout_s: float = Field(default=20.0, gt=0, le=120)
 
 
+class TelegramUserSection(_Strict):
+    enabled: bool = False
+    api_id_secret: str = Field(default="telegram_api_id", pattern=r"^[a-z0-9_]{0,64}$")
+    api_hash_secret: str = Field(default="telegram_api_hash", pattern=r"^[a-z0-9_]{0,64}$")
+    session_path: str = "~/.config/assistant/telegram_user.session"
+    max_messages: int = Field(default=15, ge=1, le=50)
+    timeout_s: float = Field(default=20.0, gt=0, le=120)
+
+
 class ServerSection(_Strict):
     name: str
     command: list[str] = Field(default_factory=list)
@@ -212,6 +221,7 @@ class ServerSection(_Strict):
             "schedule",
             "calendar",
             "email",
+            "telegram_user",
         ):
             raise ValueError(f"server name '{self.name}' is reserved for built-in tools")
         for ts in self.toolsets:
@@ -243,6 +253,7 @@ class Config(_Strict):
     tools: ToolsSection = Field(default_factory=ToolsSection)
     web: WebSection = Field(default_factory=WebSection)
     google: GoogleSection = Field(default_factory=GoogleSection)
+    telegram_user: TelegramUserSection = Field(default_factory=TelegramUserSection)
     memory: MemorySection = Field(default_factory=MemorySection)
     server: list[ServerSection] = Field(default_factory=list, max_length=20)
     schedule: list[ScheduleSection] = Field(default_factory=list, max_length=50)
@@ -255,7 +266,7 @@ class Config(_Strict):
             (
                 "toolset",
                 [t for s in self.server for t in s.toolsets]
-                + ["files", "schedules", "web", "calendar", "email"],
+                + ["files", "schedules", "web", "calendar", "email", "telegram_user"],
             ),
         ):
             if len(set(names)) != len(names):

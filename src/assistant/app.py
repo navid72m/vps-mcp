@@ -26,6 +26,7 @@ from assistant import (
     knowme,
     knowme_runtime,
     media,
+    telegram_user,
     web,
 )
 from assistant.agent import Agent
@@ -213,8 +214,11 @@ class Assistant:
         if config.google.enabled:
             specs.extend(self.calendar_specs())
             specs.extend(self.email_specs())
+        if config.telegram_user.enabled:
+            specs.extend(self.tg_user_specs())
         self.web_transport: Any = None  # tests inject a mock transport
         self.google_transport: Any = None  # tests inject a mock transport
+        self.tg_user_client: telegram_user.TelegramUserClient | None = None
         self.web_resolver: web.Resolver = web.default_resolver
         if self.router is not None:
             self.budget.prices = self.router.profile.prices
@@ -284,6 +288,9 @@ class Assistant:
         for t in tasks:
             t.cancel()
         self.state.kv_set("clean_shutdown", "1")
+        if self.tg_user_client is not None:
+            with contextlib.suppress(Exception):
+                await self.tg_user_client.aclose()
         with contextlib.suppress(Exception, asyncio.CancelledError):
             await asyncio.shield(self.hub.close())
 
@@ -848,6 +855,99 @@ class Assistant:
             ),
         ]
 
+    def tg_user_specs(self) -> list[ToolSpec]:
+        return [
+            ToolSpec(
+                "tg_user__inbox",
+                "List unread dialogs and recent incoming messages across personal Telegram chats.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "unread_only": {
+                            "type": "boolean",
+                            "description": "Only return dialogs with unread messages (default true).",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of dialogs to return (default 10, max 30).",
+                        },
+                    },
+                },
+            ),
+            ToolSpec(
+                "tg_user__search",
+                "Search personal Telegram messages across chats or within a specific chat.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Keyword or phrase to search for.",
+                        },
+                        "chat": {
+                            "type": "string",
+                            "description": "Target chat username, title, ID, or 'me' for Saved Messages. If omitted, searches globally.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum number of matching messages (default 10, max 30).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
+            ToolSpec(
+                "tg_user__read",
+                "Read recent message history from a specific personal chat, group, or channel.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "chat": {
+                            "type": "string",
+                            "description": "Username (@username), chat title, phone number, chat ID, or 'me' for Saved Messages.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Number of recent messages to retrieve (default 15, max 50).",
+                        },
+                    },
+                    "required": ["chat"],
+                },
+            ),
+            ToolSpec(
+                "tg_user__send",
+                "Send a message to a person, group, or Saved Messages from your personal Telegram account. Needs the operator's approval.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "recipient": {
+                            "type": "string",
+                            "description": "Username (@user), phone number, chat title, or 'me' for Saved Messages.",
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "The exact text message to send.",
+                        },
+                    },
+                    "required": ["recipient", "message"],
+                },
+            ),
+            ToolSpec(
+                "tg_user__save",
+                "Save a note, snippet, or reminder to your personal Telegram 'Saved Messages' chat.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "Content to store in Saved Messages.",
+                        },
+                    },
+                    "required": ["text"],
+                },
+            ),
+        ]
+
     async def builtin(
         self,
         name: str,
@@ -864,6 +964,8 @@ class Assistant:
             return await self.calendar_tool(name, args, chat_id, conversation, origin)
         if name.startswith("email__"):
             return await self.email_tool(name, args, chat_id, conversation, origin)
+        if name.startswith("tg_user__"):
+            return await self.tg_user_tool(name, args, chat_id, conversation, origin)
         if name == "assistant__switch_model":
             if self.router is None:
                 return "no router configured", True
@@ -1413,6 +1515,113 @@ class Assistant:
 
         except (google_auth.GoogleAuthError, gmail.GmailError) as exc:
             self.state.audit("email", target=name.removeprefix("email__"), outcome=str(exc)[:200])
+            return envelope({"error": str(exc)}, ok=False)
+        return envelope({"error": f"unknown tool {name}"}, ok=False)
+
+    def telegram_user_client(self) -> telegram_user.TelegramUserClient:
+        if self.tg_user_client is not None:
+            return self.tg_user_client
+        creds = telegram_user.TelegramCredentials.load(self.config, self.secret)
+        self.tg_user_client = telegram_user.TelegramUserClient(creds)
+        return self.tg_user_client
+
+    async def tg_user_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        chat_id: int,
+        conversation: str,
+        origin: str,
+    ) -> tuple[str, bool]:
+        def envelope(content: Any, ok: bool = True) -> tuple[str, bool]:
+            return json.dumps(
+                {
+                    "kind": "tool_output",
+                    "server": "telegram_user",
+                    "untrusted": True,
+                    "content": content,
+                },
+                ensure_ascii=False,
+            ), not ok
+
+        try:
+            client = self.telegram_user_client()
+            if name == "tg_user__inbox":
+                unread_only = bool(args.get("unread_only", True))
+                limit = int(args.get("limit") or self.config.telegram_user.max_messages)
+                dialogs = await client.list_inbox(unread_only=unread_only, limit=limit)
+                self.state.audit(
+                    "telegram_user", target="inbox", outcome=f"ok {len(dialogs)} dialogs"
+                )
+                return envelope({"dialogs": dialogs})
+
+            if name == "tg_user__search":
+                query = str(args.get("query", ""))
+                chat = str(args.get("chat", ""))
+                limit = int(args.get("limit") or self.config.telegram_user.max_messages)
+                messages = await client.search_messages(query=query, chat=chat, limit=limit)
+                self.state.audit(
+                    "telegram_user", target="search", outcome=f"ok {len(messages)} messages"
+                )
+                return envelope({"messages": messages})
+
+            if name == "tg_user__read":
+                chat = str(args.get("chat", ""))
+                limit = int(args.get("limit") or self.config.telegram_user.max_messages)
+                messages = await client.read_history(chat=chat, limit=limit)
+                self.state.audit(
+                    "telegram_user", target="read", outcome=f"ok {len(messages)} messages"
+                )
+                return envelope({"messages": messages})
+
+            if name == "tg_user__save":
+                text = str(args.get("text", ""))
+                res = await client.save_to_saved(text=text)
+                self.state.audit(
+                    "telegram_user",
+                    target="save",
+                    outcome=f"ok msg {res.get('message_id')}",
+                )
+                return envelope(res)
+
+            if name == "tg_user__send":
+                recipient = str(args.get("recipient", ""))
+                msg_text = str(args.get("message", ""))
+                preview = (
+                    f"Send Telegram message from personal account:\n"
+                    f"To: {recipient}\n\n{msg_text[:300]}"
+                )
+                outcome = await self.approvals.request(
+                    chat_id=chat_id,
+                    conversation=conversation,
+                    server="telegram_user",
+                    tool="send",
+                    args=args,
+                    shown_args={"recipient": recipient, "message": msg_text[:80]},
+                    preview=preview,
+                    origin=origin,
+                )
+                if outcome.status != "approved":
+                    return envelope(
+                        {"ok": False, "error": f"not done: {outcome.status} by the operator"},
+                        ok=False,
+                    )
+                if not self.approvals.bound(outcome.approval_id, "telegram_user", "send", args):
+                    return envelope(
+                        {"ok": False, "error": "approval does not match the call"}, ok=False
+                    )
+                self.approvals.mark_executed(outcome.approval_id)
+
+                res = await client.send_message(recipient=recipient, text=msg_text)
+                self.state.audit("telegram_user", target="send", outcome="ok")
+                return envelope(res)
+
+        except (telegram_user.TelegramUserError, Exception) as exc:
+            self.state.audit(
+                "telegram_user",
+                target=name.removeprefix("tg_user__"),
+                outcome=str(exc)[:200],
+            )
             return envelope({"error": str(exc)}, ok=False)
         return envelope({"error": f"unknown tool {name}"}, ok=False)
 

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 HELP = (
     "Commands: /new · /done · /status · /usage · /remind <in 15m|at 14:00> <text> · /schedules · "
     "/schedule add <name> <cadence> <prompt> | pause|resume|remove <name> · /agenda [today|tomorrow|week] · "
-    "/inbox · /ls [path] · /cat <path> · /send <path> · /stop · /resume · /forget · /model [name] · "
+    "/inbox · /tg [unread|chats|search <q>] · /ls [path] · /cat <path> · /send <path> · /stop · /resume · /forget · /model [name] · "
     "/tools · /me [all|export] · /interview"
 )
 
@@ -48,6 +48,7 @@ async def dispatch(a: Assistant, chat_id: int, text: str) -> None:
         "/interview": interview,
         "/agenda": agenda,
         "/inbox": inbox,
+        "/tg": tg,
         "/cancel": cancel,
     }.get(cmd)
     if handler is None:
@@ -442,3 +443,54 @@ async def inbox(a: Assistant, chat_id: int, rest: str) -> None:
         await a.channel.send(chat_id, text)
     except Exception as exc:
         await a.channel.send(chat_id, f"⚠️ Gmail error: {exc}")
+
+
+async def tg(a: Assistant, chat_id: int, rest: str) -> None:
+    from assistant import telegram_user
+
+    if not a.config.telegram_user.enabled:
+        await a.channel.send(
+            chat_id, "Personal Telegram integration is not enabled in assistant.toml."
+        )
+        return
+
+    subcmd, _, arg = rest.partition(" ")
+    subcmd = subcmd.lower().strip()
+    arg = arg.strip()
+
+    try:
+        client = a.telegram_user_client()
+        if subcmd in ("", "unread", "inbox"):
+            dialogs = await client.list_inbox(
+                unread_only=True, limit=a.config.telegram_user.max_messages
+            )
+            text = telegram_user.format_inbox(dialogs, "Unread Chats")
+            await a.channel.send(chat_id, text)
+        elif subcmd in ("all", "chats", "dialogs"):
+            dialogs = await client.list_inbox(
+                unread_only=False, limit=a.config.telegram_user.max_messages
+            )
+            text = telegram_user.format_inbox(dialogs, "Recent Chats")
+            await a.channel.send(chat_id, text)
+        elif subcmd == "search":
+            if not arg:
+                await a.channel.send(chat_id, "Usage: /tg search <query>")
+                return
+            msgs = await client.search_messages(
+                query=arg, limit=a.config.telegram_user.max_messages
+            )
+            if not msgs:
+                await a.channel.send(chat_id, f"No messages found matching '{arg}'.")
+                return
+            lines = [f"🔍 Found {len(msgs)} message(s) for '{arg}':\n"]
+            for m in msgs:
+                sender = m.get("sender_name") or "Unknown"
+                chat_title = m.get("chat_title") or str(m.get("chat_id", ""))
+                date = m.get("date", "")[:16]
+                text_snippet = m.get("text", "").replace("\n", " ")[:120]
+                lines.append(f"• **{sender}** in *{chat_title}* ({date}):\n  {text_snippet}")
+            await a.channel.send(chat_id, "\n".join(lines))
+        else:
+            await a.channel.send(chat_id, "Usage: /tg [unread|chats|search <query>]")
+    except Exception as exc:
+        await a.channel.send(chat_id, f"⚠️ Telegram error: {exc}")

@@ -69,6 +69,7 @@ AUDIT_KINDS = (
     "media",
     "calendar",
     "email",
+    "telegram_user",
 )
 
 

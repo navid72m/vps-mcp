@@ -27,7 +27,10 @@ def _load(args: argparse.Namespace) -> cfgmod.Config:
 
 
 def _names(cfg: cfgmod.Config) -> list[str]:
-    return ["telegram_bot_token", *cfg.model.secret_names]
+    names = ["telegram_bot_token", *cfg.model.secret_names]
+    if cfg.telegram_user.enabled:
+        names.extend([cfg.telegram_user.api_id_secret, cfg.telegram_user.api_hash_secret])
+    return names
 
 
 def _secrets(cfg: cfgmod.Config) -> dict[str, str]:
@@ -398,6 +401,50 @@ def cmd_google_auth(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_tg_auth(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from assistant.secrets import provider_for
+    from assistant.telegram_user import TelegramCredentials
+
+    cfg = _load(args)
+    prov = provider_for(cfg.secrets.provider, cfg.secrets.service, cfg.secrets.file)
+
+    try:
+        creds = TelegramCredentials.load(cfg, prov.get)
+    except Exception as exc:
+        print(f"Error loading credentials: {exc}", file=sys.stderr)
+        return 1
+
+    from telethon import TelegramClient  # type: ignore[import-untyped]
+
+    sess_str = str(creds.session_path)
+    if sess_str.endswith(".session"):
+        sess_str = sess_str[:-8]
+    creds.session_path.parent.mkdir(parents=True, exist_ok=True)
+
+    async def _auth() -> None:
+        client = TelegramClient(sess_str, creds.api_id, creds.api_hash)
+        await client.start()
+        me = await client.get_me()
+        first = getattr(me, "first_name", "") or ""
+        last = getattr(me, "last_name", "") or ""
+        username = f"@{me.username}" if getattr(me, "username", None) else ""
+        name = f"{first} {last}".strip()
+        print(
+            f"✅ Successfully authenticated as {name} ({username}) [ID: {getattr(me, 'id', 'unknown')}]"
+        )
+        print(f"Session saved to {creds.session_path}")
+        await client.disconnect()
+
+    try:
+        asyncio.run(_auth())
+        return 0
+    except Exception as exc:
+        print(f"Authentication failed: {exc}", file=sys.stderr)
+        return 1
+
+
 def cmd_knowme(args: argparse.Namespace) -> int:
     """Re-file memories saved before feature 009 (`operator.*`) under `me.<category>.*`."""
     from assistant import knowme
@@ -454,6 +501,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "google-auth", help="authorize Google Calendar and Gmail via OAuth 2.0"
     ).set_defaults(func=cmd_google_auth)
+    sub.add_parser(
+        "tg-auth", help="authorize personal Telegram account via MTProto session"
+    ).set_defaults(func=cmd_tg_auth)
     return p
 
 

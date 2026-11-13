@@ -24,6 +24,7 @@ BUILTIN_PREFIXES = (
     "web__",
     "calendar__",
     "email__",
+    "tg_user__",
 )
 BUILTIN_CORE = (
     "memory__search",
@@ -132,6 +133,27 @@ BUILTIN_SETS: dict[str, ToolsetSection] = {
             "نامه‌ها",
             "پیام",
             "پیام‌ها",
+        ],
+    ),
+    "telegram_user": ToolsetSection(
+        tools=["tg_user__*"],
+        description="Personal Telegram account: check chats, unread messages, search history, read and send messages",
+        keywords=[
+            "telegram",
+            "chat",
+            "channel",
+            "dm",
+            "message",
+            "group",
+            "dialog",
+            "saved messages",
+            "تلگرام",
+            "چت",
+            "پیام",
+            "کانال",
+            "گروه",
+            "پیام‌ها",
+            "چت‌ها",
         ],
     ),
 }
