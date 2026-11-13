@@ -17,6 +17,16 @@ Desktop, LM Studio, …) manage **one VPS** safely:
 - **Personal assistant** (`assistant`): an always-on agent of its own that you talk to on
   Telegram. It uses these tools and the shared memory, and asks for approval on your phone
   before any change. See [Personal assistant](#personal-assistant).
+- **Google Workspace** (4 tools): Google Calendar (`calendar__events`, `calendar__create_event`)
+  and Gmail (`email__inbox`, `email__send`) via OAuth 2.0, with `/agenda` and `/inbox` commands
+  and phone approval for outgoing emails.
+- **Personal Telegram** (5 tools): Connects to your own personal Telegram account via MTProto session
+  (`tg_user__*`). Search your personal chats, read unread messages, and send messages with interactive
+  approval gating.
+- **Knowledge Base RAG** (6 tools): Dedicated vector library for reading books, research papers,
+  and PDFs (`kb__search`, `kb__ask`, `kb__list`, `kb__read`, `kb__add`, `kb__remove`). Powered by
+  dense FAISS vector indexing and SentenceTransformers (`all-MiniLM-L6-v2`), with exact page citations.
+  **Completely isolated from personal memory (`agent-memory`)**.
 - **Memory** (5 tools, on by default): **agent-memory**, a managed knowledge store shared by every
   agent and project. It holds facts, decisions, procedures and experiences, with where each one
   came from, how confident it is, and when it expires. It is also a standalone MCP server that
@@ -51,8 +61,15 @@ over SSH. Nothing runs permanently on the VPS: it only needs a dedicated user an
 Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (services),
 [`specs/002-odoo-migration-analysis/`](specs/002-odoo-migration-analysis/) (migration),
 [`specs/003-declared-jobs/`](specs/003-declared-jobs/) (jobs),
-[`specs/004-agent-memory/`](specs/004-agent-memory/) (memory) and
-[`specs/005-gitlab-integration/`](specs/005-gitlab-integration/) (GitLab).
+[`specs/004-agent-memory/`](specs/004-agent-memory/) (memory),
+[`specs/005-gitlab-integration/`](specs/005-gitlab-integration/) (GitLab),
+[`specs/007-assistant-runtime/`](specs/007-assistant-runtime/) (personal assistant),
+[`specs/008-lazy-tool-loading/`](specs/008-lazy-tool-loading/) (lazy tool loading),
+[`specs/009-knows-me/`](specs/009-knows-me/) (operator profile & recall),
+[`specs/010-web-and-media/`](specs/010-web-and-media/) (web, photos, documents),
+[`specs/011-email-and-calendar/`](specs/011-email-and-calendar/) (Google Workspace),
+[`specs/012-personal-telegram/`](specs/012-personal-telegram/) (personal Telegram account MTProto), and
+[`specs/013-knowledge-base-rag/`](specs/013-knowledge-base-rag/) (knowledge base RAG).
 
 ---
 
@@ -68,6 +85,9 @@ Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (se
 - [GitLab](#gitlab-optional)
 - [Memory](#memory)
 - [Personal assistant](#personal-assistant)
+  - [Google Calendar & Gmail](#google-calendar--gmail)
+  - [Personal Telegram MTProto](#personal-telegram-mtproto)
+  - [Knowledge Base RAG (Books, Papers, PDFs)](#knowledge-base-rag-books-papers-pdfs)
 - [Security model](#security-model)
 - [Configuration reference](#configuration-reference)
 - [Troubleshooting](#troubleshooting)
@@ -663,6 +683,11 @@ dropped before any model or tool call, and audited.
 | `/tools` | Core tools, toolsets, which are loaded now, and the size of the tool list |
 | `/me` · `/me all` · `/me export` | What it knows about you, with edit/remove buttons · including sensitive facts · as a file |
 | `/interview` | Getting-to-know-you questions; `/interview stop`, `/interview sensitive on` |
+| `/agenda [today\|tomorrow\|week]` | Upcoming Google Calendar events and meetings |
+| `/inbox` | Unread emails from Gmail with sender, date, and summary snippets |
+| `/tg [unread\|chats\|search <q>]` | Personal Telegram inbox, recent chats, or search messages |
+| `/kb [list\|search <q>\|add <path>]` | Knowledge Base: search passages, list indexed books/papers, or ingest files |
+| `/ls [path]` · `/cat <path>` · `/send <path>` | Explore files on the laptop, inspect content, or send files to chat |
 | a photo, document or link | Looks at it and answers (see *Web, photos and documents*) |
 
 **Approvals.** Each tool has a policy: `auto`, `ask` or `never`. By default read-only tools are
@@ -739,6 +764,102 @@ with and without lazy loading.
   never followed, and only your caption counts as your words for "remember".
 - Privacy: search queries go to the search provider, pages are fetched from your laptop's IP, and photos and
   documents go to the model provider.
+
+### Google Calendar & Gmail
+
+Connects your personal assistant to Google Workspace via standard OAuth 2.0 with minimal scopes (`calendar.readonly`, `calendar.events`, `gmail.readonly`, `gmail.send`).
+
+1. **Setup**: Place your Google OAuth client secrets at `~/.config/assistant/google_client.json`.
+2. **Authorize**: Run the interactive OAuth flow:
+   ```bash
+   assistant google-auth
+   ```
+   The refresh token is securely stored in the macOS Keychain (`google_refresh_token`).
+3. **Usage**:
+   - `/agenda` or `/agenda [today|tomorrow|week]`: View upcoming calendar events with meeting links.
+   - `/inbox`: Quick view of unread emails with sender, subject, and snippet.
+   - **Agent Tools**: `calendar__events`, `calendar__create_event`, `email__inbox`, `email__send`.
+   - **Safety Gating**: Sending an email (`email__send`) **always** pauses for approval, presenting a full draft preview and inline **Approve / Reject** buttons.
+
+```toml
+[google]
+enabled = true
+credentials_path = "~/.config/assistant/google_client.json"
+token_secret = "google_refresh_token"
+max_emails = 10
+max_events = 20
+```
+
+### Personal Telegram MTProto
+
+Integrates the assistant with your own personal Telegram account via Telethon MTProto user sessions (separate from the bot API).
+
+1. **Setup**: Obtain your `api_id` and `api_hash` from [my.telegram.org](https://my.telegram.org) and store them in the Keychain:
+   ```bash
+   security add-generic-password -U -s vps-mcp-assistant -a telegram_api_id -w "<your_id>"
+   security add-generic-password -U -s vps-mcp-assistant -a telegram_api_hash -w "<your_hash>"
+   ```
+2. **Authorize**: Authenticate via terminal session:
+   ```bash
+   assistant tg-auth
+   ```
+   (Prompts for phone number and Telegram login code; session is stored in `~/.config/assistant/telegram_user.session`).
+3. **Usage**:
+   - `/tg unread`: View unread dialogs and message counts.
+   - `/tg chats`: List recent personal chats, groups, and channels.
+   - `/tg search <query>`: Full-text search across your personal Telegram history.
+   - **Agent Tools**: `tg_user__inbox`, `tg_user__read`, `tg_user__search`, `tg_user__send`, `tg_user__save` (Saved Messages).
+   - **Interactive Approval**: Outgoing messages (`tg_user__send`) always prompt for approval on your phone showing the recipient, body preview, and inline buttons before dispatching.
+
+```toml
+[telegram_user]
+enabled = true
+session_path = "~/.config/assistant/telegram_user.session"
+max_messages = 15
+```
+
+### Knowledge Base RAG (Books, Papers, PDFs)
+
+A dedicated, isolated vector retrieval engine for reading and asking questions across your library of books, research papers, and technical PDFs.
+
+> [!IMPORTANT]
+> **Strict Memory Isolation**: The Knowledge Base is completely separated from your personal memory (`agent-memory`). Personal operator facts remain in `~/.local/state/assistant/memory/`, while large reference documents and dense vector embeddings reside exclusively in `~/.local/state/assistant/knowledge_base/`.
+
+- **Vector Engine**: Cosine similarity powered by high-performance **FAISS** (`IndexFlatIP`) with L2-normalized dense embeddings.
+- **Embeddings**: Uses `sentence-transformers` (`all-MiniLM-L6-v2`, 384 dimensions) running locally on CPU.
+- **Document Ingestion**: Extracts text page-by-page from PDFs (`pypdf` / `fitz`), Word `.docx`, Markdown, and plain text. Implements paragraph-aware chunking with customizable overlap (`chunk_size=1000`, `chunk_overlap=200`).
+- **Exact Citations & Grounding**: Every retrieved chunk retains its source document, title, author, and exact page number (`page 346`, `chunk 329`).
+- **Prompt Injection Envelope**: All retrieved reference excerpts are wrapped inside `<reference_content>` untrusted envelopes, protecting the model from indirect prompt injections.
+- **Terminal CLI Management**:
+  ```bash
+  # Ingest a book or paper
+  assistant kb add ~/Downloads/paper.pdf --title "Attention Paper" --author "Vaswani et al."
+
+  # List indexed library
+  assistant kb list
+
+  # Semantic vector search
+  assistant kb search "multi-head self attention" --top-k 3
+
+  # Remove document and its vectors
+  assistant kb remove "Attention Paper"
+  ```
+- **Telegram Chat Usage**:
+  - `/kb` or `/kb list`: View all indexed library books with chunk counts and sizes.
+  - `/kb search <query>`: Search passages across all literature.
+  - `/kb add <path>`: Ingest documents directly from the chat.
+  - **Natural Q&A**: Ask questions naturally (*"According to DDIA, what is the difference between B-trees and LSM-trees?"*); the assistant automatically calls `kb__ask` / `kb__search` and quotes page citations.
+- **Interactive Approval**: Deleting documents (`kb__remove`) requires Telegram inline button approval before vectors are wiped.
+
+```toml
+[knowledge_base]
+enabled = true
+storage_dir = "~/.local/state/assistant/knowledge_base"
+embedding_model = "all-MiniLM-L6-v2"
+chunk_size = 1000
+chunk_overlap = 200
+top_k = 5
+```
 
 **Limits and audit.**
 
@@ -827,7 +948,7 @@ Validate with `vps-mcp check-config --config <file>`. The local audit/state data
 ## Development
 
 ```bash
-uv run pytest            # unit, contract and negative suites: no VPS needed (≈820 tests)
+uv run pytest            # unit, contract and negative suites: no VPS needed (1,102 tests)
 uv run ruff check && uv run ruff format --check && uv run mypy
 ```
 
@@ -860,9 +981,13 @@ src/vps_mcp/
 ├── jobs/                # declared jobs: integrity, params, launcher, progress, guard, report
 ├── memory/              # adapter onto agent-memory: generated facts, tool registration
 └── gitlab/              # GitLab: Keychain token, client, access, read/items/ci, archive, deploy
-src/assistant/           # personal assistant: config, secrets, state, telegram, providers,
-                         #   toolhub (policy + previews), approvals, memory, budget, agent loop,
-                         #   scheduler, commands, app, service, cli
+src/assistant/           # personal assistant runtime (daemon, CLI, Telegram bot):
+│                        #   config, secrets, state, telegram, providers (OpenAI/Anthropic/local),
+│                        #   toolhub (policy + previews), approvals, memory, budget, agent loop,
+│                        #   scheduler, commands, app, service, cli,
+│                        #   google_auth, calendar, gmail (Google Workspace),
+│                        #   telegram_user (Telethon MTProto personal account),
+│                        #   knowledge_base (FAISS vector store RAG for books & papers)
 src/agent_memory/        # standalone memory: model, files, index (FTS5), policy, ranking, store,
                          #   pinned core, MCP tools/server, CLI, migrate-004, bench
 specs/                   # speckit spec, plan, research, contracts, tasks per feature
