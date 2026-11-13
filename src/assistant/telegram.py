@@ -103,13 +103,28 @@ class TelegramChannel:
 
     async def _call(self, method: str, **params: Any) -> Any:
         url = f"{API}/bot{self._token}/{method}"
-        resp = await self._http.post(url, json={k: v for k, v in params.items() if v is not None})
-        data = resp.json()
-        if not data.get("ok"):
-            raise RuntimeError(
-                f"telegram {method} failed: {data.get('description', resp.status_code)}"
-            )
-        return data.get("result")
+        retries = 3 if method != "getUpdates" else 1
+        for attempt in range(retries):
+            try:
+                resp = await self._http.post(
+                    url, json={k: v for k, v in params.items() if v is not None}
+                )
+                data = resp.json()
+                if not data.get("ok"):
+                    raise RuntimeError(
+                        f"telegram {method} failed: {data.get('description', resp.status_code)}"
+                    )
+                return data.get("result")
+            except (httpx2.TimeoutException, httpx2.NetworkError) as exc:
+                if attempt == retries - 1:
+                    raise
+                log.warning(
+                    "telegram %s failed (%s); retrying in %ds",
+                    method,
+                    exc.__class__.__name__,
+                    attempt + 1,
+                )
+                await asyncio.sleep(attempt + 1)
 
     # ----------------------------------------------------------- receiving
 
