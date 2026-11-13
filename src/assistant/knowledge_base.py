@@ -108,7 +108,10 @@ class SentenceTransformerEmbedder:
 
         log.info("Loading SentenceTransformer model: %s", self.model_name)
         self._model = SentenceTransformer(self.model_name)
-        dim = self._model.get_sentence_embedding_dimension()
+        if hasattr(self._model, "get_embedding_dimension"):
+            dim = self._model.get_embedding_dimension()
+        else:
+            dim = getattr(self._model, "get_sentence_embedding_dimension", lambda: None)()
         if dim:
             self._dimension = int(dim)
         return self._model
