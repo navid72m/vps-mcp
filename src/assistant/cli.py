@@ -474,6 +474,66 @@ def cmd_knowme(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_kb(args: argparse.Namespace) -> int:
+    from assistant.knowledge_base import KnowledgeBase
+
+    cfg = _load(args)
+    kb = KnowledgeBase(
+        cfg.knowledge_base.storage_dir,
+        chunk_size=cfg.knowledge_base.chunk_size,
+        chunk_overlap=cfg.knowledge_base.chunk_overlap,
+    )
+
+    if args.action == "list":
+        docs = kb.list_documents()
+        if not docs:
+            print("Knowledge Base is empty.")
+            return 0
+        print(f"Knowledge Base Documents ({len(docs)}):")
+        for d in docs:
+            author = f" by {d['author']}" if d.get("author") and d["author"] != "Unknown" else ""
+            size_kb = int(d.get("file_size", 0) / 1024)
+            print(
+                f"• [{d['doc_id']}] {d['title']}{author} ({d['chunk_count']} chunks, {size_kb} KB)"
+            )
+        return 0
+
+    if args.action == "add":
+        try:
+            res = kb.ingest_file(args.path, title=args.title or "", author=args.author or "")
+            action = "Already indexed" if res.get("already_existed") else "Ingested"
+            print(
+                f"✓ {action}: '{res['title']}' ({res['chunk_count']} chunks) [ID: {res['doc_id']}]"
+            )
+            return 0
+        except Exception as exc:
+            print(f"Ingestion failed: {exc}", file=sys.stderr)
+            return 1
+
+    if args.action == "search":
+        results = kb.search(args.query, top_k=args.top_k or cfg.knowledge_base.top_k)
+        if not results:
+            print("No matching passages found.")
+            return 0
+        print(f"Results for '{args.query}' ({len(results)}):")
+        for r in results:
+            page = f"p. {r['page']}" if r.get("page") else f"chunk {r['chunk_index'] + 1}"
+            snippet = r.get("text", "").replace("\n", " ")[:200]
+            print(f"• [{r['score']}] {r['title']} ({page}):\n  {snippet}\n")
+        return 0
+
+    if args.action == "remove":
+        try:
+            res = kb.remove_document(args.doc)
+            print(f"✓ Removed '{res['title']}' ({res['removed_chunks']} chunks deleted).")
+            return 0
+        except Exception as exc:
+            print(f"Removal failed: {exc}", file=sys.stderr)
+            return 1
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="assistant", description="Personal assistant runtime")
     p.add_argument("--config", help="assistant.toml (default ~/.config/assistant/assistant.toml)")
@@ -504,6 +564,20 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "tg-auth", help="authorize personal Telegram account via MTProto session"
     ).set_defaults(func=cmd_tg_auth)
+
+    kb_p = sub.add_parser("kb", help="manage knowledge base (books, papers, PDFs)")
+    kb_sub = kb_p.add_subparsers(dest="action", required=True)
+    kb_sub.add_parser("list", help="list all indexed documents")
+    add_p = kb_sub.add_parser("add", help="ingest a document")
+    add_p.add_argument("path", help="path to PDF, DOCX, TXT, or Markdown file")
+    add_p.add_argument("--title", help="document title", default="")
+    add_p.add_argument("--author", help="document author", default="")
+    search_p = kb_sub.add_parser("search", help="search passages")
+    search_p.add_argument("query", help="search query")
+    search_p.add_argument("--top-k", type=int, default=5, help="number of results")
+    rem_p = kb_sub.add_parser("remove", help="remove a document")
+    rem_p.add_argument("doc", help="document title or ID")
+    kb_p.set_defaults(func=cmd_kb)
     return p
 
 

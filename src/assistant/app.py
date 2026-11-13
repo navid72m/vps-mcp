@@ -23,6 +23,7 @@ from assistant import (
     files,
     gmail,
     google_auth,
+    knowledge_base,
     knowme,
     knowme_runtime,
     media,
@@ -216,9 +217,12 @@ class Assistant:
             specs.extend(self.email_specs())
         if config.telegram_user.enabled:
             specs.extend(self.tg_user_specs())
+        if config.knowledge_base.enabled:
+            specs.extend(self.kb_specs())
         self.web_transport: Any = None  # tests inject a mock transport
         self.google_transport: Any = None  # tests inject a mock transport
         self.tg_user_client: telegram_user.TelegramUserClient | None = None
+        self.kb: knowledge_base.KnowledgeBase | None = None
         self.web_resolver: web.Resolver = web.default_resolver
         if self.router is not None:
             self.budget.prices = self.router.profile.prices
@@ -952,6 +956,120 @@ class Assistant:
             ),
         ]
 
+    def kb_specs(self) -> list[ToolSpec]:
+        return [
+            ToolSpec(
+                "kb__search",
+                "Search passages across books, research papers, and PDFs in the Knowledge Base using semantic similarity.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Natural language search query.",
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "description": "Number of top matching passages to return (default 5, max 20).",
+                        },
+                        "document": {
+                            "type": "string",
+                            "description": "Optional book/paper title, filename, or document ID to restrict search to.",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
+            ToolSpec(
+                "kb__ask",
+                "Retrieve relevant context from books and research papers and formulate a grounded answer with citations.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The specific question to answer based on the Knowledge Base.",
+                        },
+                        "document": {
+                            "type": "string",
+                            "description": "Optional document title or ID to restrict context to.",
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "description": "Number of passages to retrieve (default 5).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
+            ToolSpec(
+                "kb__list",
+                "List all books, research papers, and PDFs currently indexed in the Knowledge Base.",
+                {
+                    "type": "object",
+                    "properties": {},
+                },
+            ),
+            ToolSpec(
+                "kb__read",
+                "Read sequential text chunks or sections from an indexed book, paper, or document.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "document": {
+                            "type": "string",
+                            "description": "Document title, filename, or ID to read.",
+                        },
+                        "chunk_index": {
+                            "type": "integer",
+                            "description": "Starting chunk index (default 0).",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Number of consecutive chunks to return (default 3, max 10).",
+                        },
+                    },
+                    "required": ["document"],
+                },
+            ),
+            ToolSpec(
+                "kb__add",
+                "Ingest a new book, research paper, or PDF file into the Knowledge Base.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Filesystem path to the PDF, DOCX, TXT, or Markdown document.",
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Optional title for the document.",
+                        },
+                        "author": {
+                            "type": "string",
+                            "description": "Optional author name.",
+                        },
+                    },
+                    "required": ["path"],
+                },
+            ),
+            ToolSpec(
+                "kb__remove",
+                "Remove an indexed document and all its chunks from the Knowledge Base. Needs the operator's approval.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "document": {
+                            "type": "string",
+                            "description": "Document title, filename, or ID to delete.",
+                        },
+                    },
+                    "required": ["document"],
+                },
+            ),
+        ]
+
     async def builtin(
         self,
         name: str,
@@ -970,6 +1088,8 @@ class Assistant:
             return await self.email_tool(name, args, chat_id, conversation, origin)
         if name.startswith("tg_user__"):
             return await self.tg_user_tool(name, args, chat_id, conversation, origin)
+        if name.startswith("kb__"):
+            return await self.kb_tool(name, args, chat_id, conversation, origin)
         if name == "assistant__switch_model":
             if self.router is None:
                 return "no router configured", True
@@ -1628,6 +1748,129 @@ class Assistant:
             self.state.audit(
                 "telegram_user",
                 target=name.removeprefix("tg_user__"),
+                outcome=str(exc)[:200],
+            )
+            return envelope({"error": str(exc)}, ok=False)
+        return envelope({"error": f"unknown tool {name}"}, ok=False)
+
+    def knowledge_base_engine(self) -> knowledge_base.KnowledgeBase:
+        if self.kb is not None:
+            return self.kb
+        self.kb = knowledge_base.KnowledgeBase(
+            self.config.knowledge_base.storage_dir,
+            chunk_size=self.config.knowledge_base.chunk_size,
+            chunk_overlap=self.config.knowledge_base.chunk_overlap,
+        )
+        return self.kb
+
+    async def kb_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        chat_id: int,
+        conversation: str,
+        origin: str,
+    ) -> tuple[str, bool]:
+        def envelope(content: Any, ok: bool = True) -> tuple[str, bool]:
+            return json.dumps(
+                {
+                    "kind": "tool_output",
+                    "server": "knowledge_base",
+                    "untrusted": True,
+                    "content": content,
+                },
+                ensure_ascii=False,
+            ), not ok
+
+        try:
+            kb = self.knowledge_base_engine()
+            if name == "kb__search":
+                query = str(args.get("query", ""))
+                top_k = int(args.get("top_k") or self.config.knowledge_base.top_k)
+                doc = str(args.get("document", ""))
+                results = kb.search(query=query, top_k=top_k, document=doc)
+                self.state.audit(
+                    "knowledge_base", target="search", outcome=f"ok {len(results)} results"
+                )
+                return envelope({"results": results})
+
+            if name == "kb__ask":
+                query = str(args.get("query", ""))
+                top_k = int(args.get("top_k") or self.config.knowledge_base.top_k)
+                doc = str(args.get("document", ""))
+                results = kb.search(query=query, top_k=top_k, document=doc)
+                self.state.audit(
+                    "knowledge_base", target="ask", outcome=f"ok {len(results)} context chunks"
+                )
+                return envelope(
+                    {
+                        "query": query,
+                        "document_filter": doc or "all",
+                        "retrieved_passages": results,
+                    }
+                )
+
+            if name == "kb__list":
+                docs = kb.list_documents()
+                self.state.audit(
+                    "knowledge_base", target="list", outcome=f"ok {len(docs)} documents"
+                )
+                return envelope({"documents": docs})
+
+            if name == "kb__read":
+                doc = str(args.get("document", ""))
+                chunk_index = int(args.get("chunk_index", 0))
+                limit = int(args.get("limit", 3))
+                chunks = kb.read_chunks(document=doc, chunk_index=chunk_index, limit=limit)
+                self.state.audit(
+                    "knowledge_base", target="read", outcome=f"ok {len(chunks)} chunks"
+                )
+                return envelope({"chunks": chunks})
+
+            if name == "kb__add":
+                path_str = str(args.get("path", ""))
+                title = str(args.get("title", ""))
+                author = str(args.get("author", ""))
+                res = kb.ingest_file(path_str, title=title, author=author)
+                self.state.audit(
+                    "knowledge_base", target="add", outcome=f"ok doc {res.get('doc_id')}"
+                )
+                return envelope(res)
+
+            if name == "kb__remove":
+                doc = str(args.get("document", ""))
+                preview = (
+                    f"Delete document '{doc}' and all its vector embeddings from the Knowledge Base"
+                )
+                outcome = await self.approvals.request(
+                    chat_id=chat_id,
+                    conversation=conversation,
+                    server="knowledge_base",
+                    tool="remove",
+                    args=args,
+                    shown_args={"document": doc},
+                    preview=preview,
+                    origin=origin,
+                )
+                if outcome.status != "approved":
+                    return envelope(
+                        {"ok": False, "error": f"not done: {outcome.status} by the operator"},
+                        ok=False,
+                    )
+                if not self.approvals.bound(outcome.approval_id, "knowledge_base", "remove", args):
+                    return envelope(
+                        {"ok": False, "error": "approval does not match the call"}, ok=False
+                    )
+                self.approvals.mark_executed(outcome.approval_id)
+
+                res = kb.remove_document(doc)
+                self.state.audit("knowledge_base", target="remove", outcome="ok")
+                return envelope(res)
+
+        except (knowledge_base.KnowledgeBaseError, Exception) as exc:
+            self.state.audit(
+                "knowledge_base",
+                target=name.removeprefix("kb__"),
                 outcome=str(exc)[:200],
             )
             return envelope({"error": str(exc)}, ok=False)

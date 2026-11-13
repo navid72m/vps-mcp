@@ -201,6 +201,16 @@ class TelegramUserSection(_Strict):
     timeout_s: float = Field(default=20.0, gt=0, le=120)
 
 
+class KnowledgeBaseSection(_Strict):
+    enabled: bool = False
+    storage_dir: str = "~/.local/state/assistant/knowledge_base"
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    chunk_size: int = Field(default=1000, ge=100, le=8000)
+    chunk_overlap: int = Field(default=200, ge=0, le=1000)
+    top_k: int = Field(default=5, ge=1, le=20)
+    max_tokens: int = Field(default=1500, ge=100, le=4000)
+
+
 class ServerSection(_Strict):
     name: str
     command: list[str] = Field(default_factory=list)
@@ -222,6 +232,7 @@ class ServerSection(_Strict):
             "calendar",
             "email",
             "telegram_user",
+            "knowledge_base",
         ):
             raise ValueError(f"server name '{self.name}' is reserved for built-in tools")
         for ts in self.toolsets:
@@ -254,6 +265,7 @@ class Config(_Strict):
     web: WebSection = Field(default_factory=WebSection)
     google: GoogleSection = Field(default_factory=GoogleSection)
     telegram_user: TelegramUserSection = Field(default_factory=TelegramUserSection)
+    knowledge_base: KnowledgeBaseSection = Field(default_factory=KnowledgeBaseSection)
     memory: MemorySection = Field(default_factory=MemorySection)
     server: list[ServerSection] = Field(default_factory=list, max_length=20)
     schedule: list[ScheduleSection] = Field(default_factory=list, max_length=50)
@@ -266,7 +278,15 @@ class Config(_Strict):
             (
                 "toolset",
                 [t for s in self.server for t in s.toolsets]
-                + ["files", "schedules", "web", "calendar", "email", "telegram_user"],
+                + [
+                    "files",
+                    "schedules",
+                    "web",
+                    "calendar",
+                    "email",
+                    "telegram_user",
+                    "knowledge_base",
+                ],
             ),
         ):
             if len(set(names)) != len(names):
