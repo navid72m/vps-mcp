@@ -800,6 +800,7 @@
 
         <div class="chat-input-container">
           <div class="prompt-chips">
+            <div class="prompt-chip" style="background: rgba(56, 189, 248, 0.12); color: var(--primary); border-color: rgba(56, 189, 248, 0.3); font-weight: 600;" onclick="startNewChat()">✨ New Session</div>
             <div class="prompt-chip" onclick="quickPrompt('What is on my schedule today?')">📅 What's on my schedule today?</div>
             <div class="prompt-chip" onclick="quickPrompt('Check VPS server health and list active services')">🖥️ Check VPS server health</div>
             <div class="prompt-chip" onclick="quickPrompt('Summarize my unread emails')">📬 Summarize unread emails</div>
@@ -1039,6 +1040,7 @@
     let currentView = 'chat';
     let availableModels = [];
     let currentModel = '';
+    let currentCid = '';
 
     // Clock
     function updateClock() {
@@ -1136,12 +1138,52 @@
     });
 
     // Chat
+    async function loadChatHistory() {
+      try {
+        const res = await fetch('/api/chat/history');
+        const data = await res.json();
+        if (data.cid) {
+          currentCid = data.cid;
+        }
+        if (data.turns && data.turns.length > 0) {
+          const container = document.getElementById('chat-messages-container');
+          container.innerHTML = '';
+          data.turns.forEach(t => {
+            appendChatMessage(t.role, t.text, t.tools, t.ts);
+          });
+        }
+      } catch (err) {
+        console.error('Chat history load error:', err);
+      }
+    }
+
+    async function startNewChat() {
+      if (!confirm('Start a fresh conversation session? (Previous chat history is preserved in SQLite)')) return;
+      try {
+        const res = await fetch('/api/chat/new', { method: 'POST' });
+        const data = await res.json();
+        currentCid = data.cid;
+        const container = document.getElementById('chat-messages-container');
+        container.innerHTML = `
+          <div class="message-row assistant">
+            <div class="message-avatar">AG</div>
+            <div class="message-bubble">
+              <p><strong>Started a fresh conversation session.</strong></p>
+              <p>How may I assist you today?</p>
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        alert('Failed to start new chat: ' + err);
+      }
+    }
+
     async function sendChat() {
       const textarea = document.getElementById('chat-input');
       const text = textarea.value.trim();
       if (!text) return;
 
-      appendChatMessage('user', text);
+      appendChatMessage('user', text, [], new Date().toISOString());
       textarea.value = '';
       textarea.style.height = '48px';
 
@@ -1152,10 +1194,13 @@
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text })
+          body: JSON.stringify({ message: text, cid: currentCid })
         });
         const data = await res.json();
-        appendChatMessage('assistant', data.response, data.tools);
+        if (data.cid) {
+          currentCid = data.cid;
+        }
+        appendChatMessage('assistant', data.response, data.tools, data.ts);
       } catch (err) {
         appendChatMessage('assistant', '⚠️ Error contacting secretary: ' + err);
       } finally {
@@ -1191,7 +1236,7 @@
       return `<p>${escaped}</p>`;
     }
 
-    function appendChatMessage(role, text, tools = []) {
+    function appendChatMessage(role, text, tools = [], ts = null) {
       const container = document.getElementById('chat-messages-container');
       const row = document.createElement('div');
       row.className = `message-row ${role}`;
@@ -1211,6 +1256,18 @@
         toolDiv.className = 'tools-tag';
         toolDiv.innerHTML = `⚙️ Tools: ${tools.join(', ')}`;
         bubble.appendChild(toolDiv);
+      }
+
+      if (ts) {
+        const timeDiv = document.createElement('div');
+        timeDiv.className = 'message-time';
+        try {
+          const d = new Date(ts);
+          timeDiv.innerText = isNaN(d.getTime()) ? ts : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } catch (e) {
+          timeDiv.innerText = ts;
+        }
+        bubble.appendChild(timeDiv);
       }
 
       row.appendChild(avatar);
@@ -1580,6 +1637,7 @@
 
     // Initial load
     loadStatus();
+    loadChatHistory();
     setInterval(loadStatus, 15000); // 15s poll for approvals & status
   </script>
 </body>

@@ -94,3 +94,19 @@ def test_api_audit(test_app: TestClient):
     res = test_app.get("/api/audit")
     assert res.status_code == 200
     assert "records" in res.json()
+
+
+def test_api_chat_history_and_new(test_app: TestClient):
+    # Fetch history
+    h_res = test_app.get("/api/chat/history")
+    assert h_res.status_code == 200
+    data = h_res.json()
+    assert "cid" in data
+    assert "turns" in data
+
+    # Start new session
+    n_res = test_app.post("/api/chat/new")
+    assert n_res.status_code == 200
+    assert n_res.json()["ok"] is True
+    assert "cid" in n_res.json()
+

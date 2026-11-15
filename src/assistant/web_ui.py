@@ -250,6 +250,48 @@ class WebSecretaryApp:
             }
         )
 
+    async def api_chat_history(self, request: Request) -> JSONResponse:
+        chat_id = self.cfg.telegram.allowed_user_ids[0] if self.cfg.telegram.allowed_user_ids else 1000
+        cid = request.query_params.get("cid", "").strip()
+        if not cid:
+            conv = self.state.conversation_current(chat_id)
+            if not conv:
+                row = self.state.x(
+                    "SELECT * FROM conversations WHERE chat_id = ? ORDER BY started DESC LIMIT 1",
+                    (chat_id,),
+                ).fetchone()
+                conv = dict(row) if row else None
+            cid = str(conv["id"]) if conv else ""
+
+        if not cid:
+            return JSONResponse({"cid": "", "turns": []})
+
+        limit = int(request.query_params.get("limit", 100))
+        turns = self.state.recent_turns(cid, limit)
+        return JSONResponse(
+            {
+                "cid": cid,
+                "turns": [
+                    {
+                        "id": t["id"],
+                        "role": t["role"],
+                        "text": t["text"],
+                        "ts": t["ts"],
+                        "tools": [x.strip() for x in t.get("tool_summary", "").split(",") if x.strip()],
+                    }
+                    for t in turns
+                ],
+            }
+        )
+
+    async def api_chat_new(self, request: Request) -> JSONResponse:
+        chat_id = self.cfg.telegram.allowed_user_ids[0] if self.cfg.telegram.allowed_user_ids else 1000
+        cur = self.state.conversation_current(chat_id)
+        if cur:
+            self.state.conversation_end(cur["id"])
+        new_conv = self.state.conversation_new(chat_id, now_iso())
+        return JSONResponse({"ok": True, "cid": new_conv["id"]})
+
     # ---------------------------------------------------------------- Approvals
     async def api_approvals(self, request: Request) -> JSONResponse:
         pending = self.state.approvals_pending()
@@ -409,6 +451,8 @@ def create_web_app(cfg: cfgmod.Config | None = None) -> Starlette:
         Route("/api/models", handler.api_models, methods=["GET"]),
         Route("/api/models/switch", handler.api_models_switch, methods=["POST"]),
         Route("/api/chat", handler.api_chat, methods=["POST"]),
+        Route("/api/chat/history", handler.api_chat_history, methods=["GET"]),
+        Route("/api/chat/new", handler.api_chat_new, methods=["POST"]),
         Route("/api/approvals", handler.api_approvals, methods=["GET"]),
         Route("/api/approvals/{aid}/action", handler.api_approval_action, methods=["POST"]),
         Route("/api/calendar", handler.api_calendar, methods=["GET"]),
