@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import logging
 import webbrowser
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from starlette.applications import Starlette
@@ -30,7 +32,7 @@ from assistant import config as cfgmod
 from assistant.google_auth import GoogleAuth, GoogleCredentials
 from assistant.knowledge_base import KnowledgeBase
 from assistant.memory import AssistantMemory
-from assistant.providers import Msg, TextBlock
+from assistant.providers import Msg, TextBlock, ToolResult, ToolSpec
 from assistant.secrets import provider_for
 from assistant.state import State, now_iso
 
@@ -120,6 +122,280 @@ class WebSecretaryApp:
         self.state.audit("system", origin="web", outcome=f"switched model to {target}")
         return JSONResponse({"ok": True, "active": target})
 
+    def _get_tools(self) -> list[ToolSpec]:
+        return [
+            ToolSpec(
+                "vps__get_resource_usage",
+                "Get current CPU load averages, RAM memory usage, and Disk space for the VPS host server.",
+                {"type": "object", "properties": {}},
+            ),
+            ToolSpec(
+                "vps__list_services",
+                "List all managed services and containers running on the VPS host server with their state and status.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": {
+                            "type": "string",
+                            "enum": ["systemd", "docker"],
+                            "description": "Optional filter by service kind.",
+                        }
+                    },
+                },
+            ),
+            ToolSpec(
+                "vps__get_service_status",
+                "Get detailed status for a specific service or container on the VPS server.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "service": {
+                            "type": "string",
+                            "description": "Service or container name (e.g. 'caddy', 'postgres').",
+                        },
+                    },
+                    "required": ["service"],
+                },
+            ),
+            ToolSpec(
+                "kb__search",
+                "Search passages across books, research papers, and technical documents in the Knowledge Base using dense semantic similarity.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Natural language query."},
+                        "top_k": {
+                            "type": "integer",
+                            "description": "Number of top matching passages to return (default 4).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
+            ToolSpec(
+                "calendar__events",
+                "List upcoming events from the operator's Google Calendar.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of events to retrieve (default 5).",
+                        }
+                    },
+                },
+            ),
+            ToolSpec(
+                "email__inbox",
+                "List recent emails from Gmail inbox with sender, subject, and snippet.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum number of emails to retrieve (default 5).",
+                        }
+                    },
+                },
+            ),
+            ToolSpec(
+                "memory__search",
+                "Search operator profile, background facts, work, preferences, and memories.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query."},
+                        "limit": {
+                            "type": "integer",
+                            "description": "Maximum facts to return (default 6).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            ),
+            ToolSpec(
+                "schedule__list",
+                "List all background schedules and automated routines.",
+                {"type": "object", "properties": {}},
+            ),
+            ToolSpec(
+                "schedule__add",
+                "Create a scheduled routine or reminder for the operator.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "Unique identifier name for the schedule.",
+                        },
+                        "cadence": {
+                            "type": "string",
+                            "description": "Cron expression or interval cadence (e.g. '0 9 * * *' or '10m').",
+                        },
+                        "prompt": {
+                            "type": "string",
+                            "description": "Instruction or prompt to execute when triggered.",
+                        },
+                    },
+                    "required": ["name", "cadence", "prompt"],
+                },
+            ),
+            ToolSpec(
+                "files__read",
+                "Read content of a file on the operator's laptop. Returns lines with line numbers.",
+                {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to file, e.g. '~/config.toml' or relative path.",
+                        },
+                        "start_line": {"type": "integer", "description": "1-based start line (default 1)."},
+                        "end_line": {"type": "integer", "description": "1-based end line (default 200)."},
+                    },
+                    "required": ["path"],
+                },
+            ),
+        ]
+
+    async def _execute_tool(self, name: str, args: dict[str, Any]) -> str:
+        try:
+            if name == "vps__get_resource_usage":
+                if not self.vps_config_exists:
+                    return json.dumps({"error": "VPS configuration file not found."})
+                from vps_mcp.config.loader import load_config
+                from vps_mcp.core import queries
+                from vps_mcp.server import build_context
+
+                cfg = load_config(self.vps_config_path)
+                ctx = build_context(cfg)
+                res = await queries.get_resource_usage(ctx, include_services=False)
+                return json.dumps(
+                    {
+                        "load_avg": res.get("load_avg"),
+                        "cpu_count": res.get("cpu_count"),
+                        "mem_used_bytes": res.get("mem_used_bytes"),
+                        "mem_total_bytes": res.get("mem_total_bytes"),
+                        "mem_used_pct": round(
+                            (res.get("mem_used_bytes", 0) / max(1, res.get("mem_total_bytes", 1))) * 100, 1
+                        ),
+                        "disk": res.get("disk"),
+                    },
+                    ensure_ascii=False,
+                )
+
+            if name == "vps__list_services":
+                if not self.vps_config_exists:
+                    return json.dumps({"error": "VPS configuration file not found."})
+                from vps_mcp.config.loader import load_config
+                from vps_mcp.core import queries
+                from vps_mcp.server import build_context
+
+                cfg = load_config(self.vps_config_path)
+                ctx = build_context(cfg)
+                kind = args.get("kind")
+                raw = await queries.list_services(ctx, kind=kind)
+                compact = [
+                    {
+                        "name": s.get("name"),
+                        "kind": s.get("kind"),
+                        "state": s.get("state"),
+                        "uptime": s.get("uptime_seconds"),
+                        "boot": s.get("boot_start"),
+                        "active": s.get("active"),
+                    }
+                    for s in raw.get("services", [])
+                ]
+                return json.dumps({"services": compact}, ensure_ascii=False)
+
+            if name == "vps__get_service_status":
+                if not self.vps_config_exists:
+                    return json.dumps({"error": "VPS configuration file not found."})
+                from vps_mcp.config.loader import load_config
+                from vps_mcp.core import queries
+                from vps_mcp.server import build_context
+
+                cfg = load_config(self.vps_config_path)
+                ctx = build_context(cfg)
+                sname = str(args.get("service") or args.get("name") or "")
+                status = await queries.get_service_status(ctx, service=sname)
+                return json.dumps(status, ensure_ascii=False, default=str)
+
+            if name == "kb__search":
+                query = str(args.get("query", ""))
+                top_k = min(int(args.get("top_k", 3)), 3)
+                res = self.kb.search(query, top_k=top_k)
+                compact = [
+                    {
+                        "title": r.get("title"),
+                        "page": r.get("page"),
+                        "score": round(r.get("score", 0.0), 3),
+                        "text": r.get("text", "")[:280],
+                    }
+                    for r in res
+                ]
+                return json.dumps({"results": compact}, ensure_ascii=False)
+
+            if name == "calendar__events":
+                auth = self._get_google_auth()
+                if not auth:
+                    return json.dumps({"events": [], "note": "Google Calendar not enabled or unauthenticated."})
+                max_r = int(args.get("max_results", 5))
+                events = await calendar.list_events(auth, timezone=self.cfg.assistant.timezone, max_results=max_r)
+                return json.dumps({"events": events}, ensure_ascii=False)
+
+            if name == "email__inbox":
+                auth = self._get_google_auth()
+                if not auth:
+                    return json.dumps({"messages": [], "note": "Gmail not enabled or unauthenticated."})
+                max_r = int(args.get("max_results", 5))
+                messages = await gmail.list_inbox(auth, max_results=max_r)
+                return json.dumps({"messages": messages}, ensure_ascii=False)
+
+            if name == "memory__search":
+                if not self.memory.available:
+                    return json.dumps({"facts": [], "note": "Memory store unavailable."})
+                query = str(args.get("query", "")).lower()
+                limit = int(args.get("limit", 6))
+                facts = self.memory.facts()
+                if query:
+                    words = set(query.split())
+                    matched = [f for f in facts if any(w in (f.title + " " + f.content).lower() for w in words)]
+                    if not matched:
+                        matched = facts
+                else:
+                    matched = facts
+                return json.dumps(
+                    [{"title": f.title, "content": f.content, "category": f.category} for f in matched[:limit]],
+                    ensure_ascii=False,
+                )
+
+            if name == "schedule__list":
+                scheds = self.state.schedules()
+                return json.dumps({"schedules": scheds}, ensure_ascii=False)
+
+            if name == "schedule__add":
+                s_name = str(args.get("name", "")).strip()
+                cadence = str(args.get("cadence", args.get("cron", ""))).strip()
+                prompt = str(args.get("prompt", args.get("action", ""))).strip()
+                if not s_name or not cadence or not prompt:
+                    return json.dumps({"error": "name, cadence, and prompt are all required"})
+                self.state.schedule_upsert(s_name, cadence, prompt, True, None, "web")
+                return json.dumps({"ok": True, "name": s_name, "cadence": cadence, "prompt": prompt})
+
+            if name == "files__read":
+                from assistant import files
+                path_str = str(args.get("path", ""))
+                start = int(args.get("start_line", 1))
+                end = int(args.get("end_line", 200))
+                res = files.files_read(path_str, start_line=start, end_line=end)
+                return json.dumps(res, ensure_ascii=False)
+
+            return json.dumps({"error": f"Unknown tool '{name}'"})
+        except Exception as exc:
+            log.exception("Tool execution error for %s", name)
+            return json.dumps({"error": f"Tool execution failed: {exc}"})
+
     # ---------------------------------------------------------------- Chat
     async def api_chat(self, request: Request) -> JSONResponse:
         body = await request.json()
@@ -137,102 +413,96 @@ class WebSecretaryApp:
             cid = str(conv["id"])
 
         now_ts = now_iso()
-        self.state.add_turn(cid, now_ts, "user", message)
-        self.state.conversation_touch(cid, now_ts)
-
         active_alias = self.state.kv_get("model", self.cfg.model.alias) or self.cfg.model.alias
         model_sec = self.cfg.profiles.get(active_alias, self.cfg.model)
         from assistant.cli import make_provider
 
+        tools = self._get_tools()
         tools_used: list[str] = []
         assistant_reply = ""
+        model_calls = 0
 
-        # Contextual tool pre-check (RAG, Calendar, Services, Memory)
-        q_lower = message.lower()
-        extra_context = ""
+        # Build history from recent turns before adding this turn
+        recent = self.state.recent_turns(cid, 4)
+        messages: list[Msg] = []
+        for t in recent:
+            # Compact older responses to avoid free-tier TPM (tokens per minute) limit
+            t_text = t["text"]
+            if len(t_text) > 800:
+                t_text = t_text[:800] + "…[truncated for brevity]"
+            messages.append(Msg(t["role"], [TextBlock(t_text)]))
+        messages.append(Msg("user", [TextBlock(message)]))
+
+        system_prompt = (
+            f"You are {self.cfg.assistant.name}, an executive digital secretary for Navid.\n"
+            f"Operator timezone is {self.cfg.assistant.timezone}. Current time: {now_ts}.\n"
+            "You have direct tool access to:\n"
+            "- VPS infrastructure metrics and services (`vps__get_resource_usage`, `vps__list_services`, `vps__get_service_status`)\n"
+            "- Knowledge Base vector search across technical books & papers (`kb__search`)\n"
+            "- Operator Google Calendar & Gmail (`calendar__events`, `email__inbox`)\n"
+            "- Operator profile & memory (`memory__search`)\n"
+            "- Scheduled routines (`schedule__list`, `schedule__add`)\n"
+            "- Local file reading (`files__read`)\n"
+            "Always use these tools to inspect live state instead of guessing or claiming you lack access. "
+            "Provide direct, concise, well-structured, professional answers.\n"
+            "Format with clean Markdown (bullet points, bold key values).\n"
+            "If the operator speaks Farsi, reply in natural Farsi."
+        )
 
         try:
-            if any(k in q_lower for k in ("ddia", "book", "paper", "lineariz", "isolation", "lsm", "b-tree")):
-                kb_results = self.kb.search(message, top_k=3)
-                if kb_results:
-                    tools_used.append("kb__search")
-                    citations = "\n".join(
-                        f"• [{r['title']}, p. {r.get('page', '?')}]: {r['text'][:350]}"
-                        for r in kb_results
-                    )
-                    extra_context += f"\n\n[Knowledge Base Passages]:\n{citations}"
-
-            if any(k in q_lower for k in ("agenda", "calendar", "schedule today", "meeting", "events")):
-                auth = self._get_google_auth()
-                if auth:
-                    evs = await calendar.list_events(auth, timezone=self.cfg.assistant.timezone, max_results=5)
-                    tools_used.append("calendar__events")
-                    ev_lines = "\n".join(f"• {e['summary']} ({e.get('time_span', e.get('start'))})" for e in evs)
-                    extra_context += f"\n\n[Google Calendar Upcoming]:\n{ev_lines or 'No events scheduled.'}"
-
-            if any(k in q_lower for k in ("email", "inbox", "mail", "unread")):
-                auth = self._get_google_auth()
-                if auth:
-                    msgs = await gmail.list_inbox(auth, max_results=5)
-                    tools_used.append("email__inbox")
-                    m_lines = "\n".join(f"• From: {m.get('from')} | Subject: {m.get('subject')}" for m in msgs)
-                    extra_context += f"\n\n[Gmail Recent Inbox]:\n{m_lines or 'Inbox clean.'}"
-
-            if any(k in q_lower for k in ("vps", "server", "service", "load", "ram", "cpu", "container", "health")):
-                vps_data = await self._query_vps_summary()
-                if vps_data:
-                    tools_used.append("vps__get_resource_usage")
-                    extra_context += f"\n\n[VPS Host Telemetry & Services]:\n{vps_data}"
-
-            if any(k in q_lower for k in ("remember", "who am i", "my name", "my work", "preference")):
-                if self.memory.available:
-                    facts = self.memory.facts()
-                    tools_used.append("memory__search")
-                    f_lines = "\n".join(f"• {f.title}: {f.content}" for f in facts[:8])
-                    extra_context += f"\n\n[Operator Facts]:\n{f_lines}"
-
-            # Execute completion with LLM provider
             prov = make_provider(model_sec, self.secrets.get)
-            system_prompt = (
-                f"You are {self.cfg.assistant.name}, an executive digital secretary for Navid.\n"
-                f"Operator timezone is {self.cfg.assistant.timezone}. Current time: {now_ts}.\n"
-                "Provide direct, concise, well-structured, professional answers.\n"
-                "Format with clean Markdown (bullet points, bold key values).\n"
-                "If the operator speaks Farsi, reply in natural Farsi."
-            )
+            max_steps = 4
+            for _ in range(max_steps):
+                model_calls += 1
+                reply = await prov.complete(
+                    system=system_prompt,
+                    messages=messages,
+                    tools=tools,
+                    max_tokens=model_sec.max_tokens,
+                )
+                if not reply.tool_uses:
+                    assistant_reply = reply.text
+                    break
 
-            # Build history from recent turns
-            recent = self.state.recent_turns(cid, 6)
-            messages: list[Msg] = []
-            for t in recent:
-                messages.append(Msg(t["role"], [TextBlock(t["text"])]))
-
-            prompt_body = message
-            if extra_context:
-                prompt_body += f"\n\n--- Verified Tool Context ---{extra_context}"
-
-            messages.append(Msg("user", [TextBlock(prompt_body)]))
-
-            res = await prov.complete(
-                system=system_prompt,
-                messages=messages,
-                tools=[],
-                max_tokens=model_sec.max_tokens,
-            )
-            assistant_reply = res.text
+                messages.append(Msg("assistant", list(reply.blocks)))
+                tool_results: list[ToolResult] = []
+                for call in reply.tool_uses:
+                    if call.name not in tools_used:
+                        tools_used.append(call.name)
+                    output = await self._execute_tool(call.name, call.input)
+                    tool_results.append(ToolResult(call.id, output))
+                messages.append(Msg("user", tool_results))
+            else:
+                model_calls += 1
+                final_reply = await prov.complete(
+                    system=system_prompt,
+                    messages=messages,
+                    tools=[],
+                    max_tokens=model_sec.max_tokens,
+                )
+                assistant_reply = final_reply.text
 
         except Exception as exc:
             log.exception("Chat generation error")
-            assistant_reply = f"I encountered an error executing this request: {exc}"
+            err_msg = str(exc)
+            if "429" in err_msg or "Rate limit" in err_msg:
+                assistant_reply = (
+                    "⚠️ **Rate Limit Reached**: The free-tier token per minute (TPM) quota on this model "
+                    "was temporarily exceeded. Please wait ~30 seconds for the quota window to reset, "
+                    "or switch to another model profile using the top bar."
+                )
+            else:
+                assistant_reply = f"I encountered an error executing this request: {exc}"
 
         reply_ts = now_iso()
         tool_summary = ", ".join(tools_used)
+        self.state.add_turn(cid, now_ts, "user", message)
         self.state.add_turn(cid, reply_ts, "assistant", assistant_reply, tool_summary=tool_summary)
         self.state.conversation_touch(cid, reply_ts)
 
         # Record daily budget
         today = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
-        self.state.budget_add(today, model_calls=1, tool_calls=len(tools_used))
+        self.state.budget_add(today, model_calls=model_calls, tool_calls=len(tools_used))
         self.state.audit(
             "model_call",
             conversation=cid,

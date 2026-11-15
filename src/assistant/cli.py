@@ -28,9 +28,13 @@ def _load(args: argparse.Namespace) -> cfgmod.Config:
 
 def _names(cfg: cfgmod.Config) -> list[str]:
     names = ["telegram_bot_token", *cfg.model.secret_names]
+    for m in cfg.models.values():
+        names.extend(m.secret_names)
+    if cfg.google.enabled:
+        names.append(cfg.google.token_secret)
     if cfg.telegram_user.enabled:
         names.extend([cfg.telegram_user.api_id_secret, cfg.telegram_user.api_hash_secret])
-    return names
+    return list(dict.fromkeys(names))
 
 
 def _secrets(cfg: cfgmod.Config) -> dict[str, str]:

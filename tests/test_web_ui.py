@@ -110,3 +110,26 @@ def test_api_chat_history_and_new(test_app: TestClient):
     assert n_res.json()["ok"] is True
     assert "cid" in n_res.json()
 
+
+def test_api_chat_tool_calling(monkeypatch, test_app: TestClient):
+    from assistant.providers import Reply, TextBlock, ToolUse
+
+    step = 0
+
+    class MockProvider:
+        async def complete(self, *, system, messages, tools, max_tokens):
+            nonlocal step
+            step += 1
+            if step == 1:
+                return Reply([ToolUse("call_1", "schedule__list", {})], stop_reason="tool_use")
+            return Reply([TextBlock("You currently have 1 scheduled routine active.")], stop_reason="end_turn")
+
+    monkeypatch.setattr("assistant.cli.make_provider", lambda *args, **kwargs: MockProvider())
+
+    res = test_app.post("/api/chat", json={"message": "What schedules do I have?"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["response"] == "You currently have 1 scheduled routine active."
+    assert "schedule__list" in data["tools"]
+    assert step == 2
+
