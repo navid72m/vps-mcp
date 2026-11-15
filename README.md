@@ -85,6 +85,7 @@ Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (se
 - [GitLab](#gitlab-optional)
 - [Memory](#memory)
 - [Personal assistant](#personal-assistant)
+  - [Executive Web Cockpit](#executive-web-cockpit)
   - [Google Calendar & Gmail](#google-calendar--gmail)
   - [Personal Telegram MTProto](#personal-telegram-mtproto)
   - [Knowledge Base RAG (Books, Papers, PDFs)](#knowledge-base-rag-books-papers-pdfs)
@@ -764,6 +765,23 @@ with and without lazy loading.
   never followed, and only your caption counts as your words for "remember".
 - Privacy: search queries go to the search provider, pages are fetched from your laptop's IP, and photos and
   documents go to the model provider.
+
+### Executive Web Cockpit
+
+In addition to Telegram, you can launch a local, dark-mode web control center:
+
+```bash
+uv run assistant ui
+# or: uv run assistant web --port 8765
+```
+
+- **Secretary Console**: Full desktop chat with on-the-fly model switcher (`groq`, `deepseek`, `qwen`, `nemotron`).
+- **Action Guardrail**: Review pending sensitive actions (emails, service restarts, file modifications) with syntax-highlighted previews, diffs, and 1-click **Approve** / **Reject** buttons.
+- **Agenda & Inbox**: Live Google Calendar events timeline and Gmail executive inbox summaries.
+- **Knowledge Base RAG**: Search ingested books (*DDIA*, research papers) with exact page citations and relevance scores.
+- **VPS Telemetry**: Real-time CPU, RAM, and disk utilization, plus status for all 20 systemd services and Docker containers.
+- **Profile & Memory ("Knows Me")**: Operator identity cards, working preferences, and memory explorer.
+- **Routines & Cadences**: Pause / resume scheduled briefings, timers, and cron routines.
 
 ### Google Calendar & Gmail
 

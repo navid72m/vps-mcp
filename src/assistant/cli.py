@@ -534,6 +534,14 @@ def cmd_kb(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ui(args: argparse.Namespace) -> int:
+    from assistant.web_ui import run_server
+
+    cfg = _load(args)
+    run_server(host=args.host, port=args.port, open_browser=not args.no_open, cfg=cfg)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="assistant", description="Personal assistant runtime")
     p.add_argument("--config", help="assistant.toml (default ~/.config/assistant/assistant.toml)")
@@ -578,6 +586,18 @@ def build_parser() -> argparse.ArgumentParser:
     rem_p = kb_sub.add_parser("remove", help="remove a document")
     rem_p.add_argument("doc", help="document title or ID")
     kb_p.set_defaults(func=cmd_kb)
+
+    ui_p = sub.add_parser("ui", help="launch the digital secretary executive web UI")
+    ui_p.add_argument("--host", default="127.0.0.1", help="host to bind (default: 127.0.0.1)")
+    ui_p.add_argument("--port", type=int, default=8765, help="port to bind (default: 8765)")
+    ui_p.add_argument("--no-open", action="store_true", help="do not open browser automatically")
+    ui_p.set_defaults(func=cmd_ui)
+
+    web_p = sub.add_parser("web", help="alias for ui (launch digital secretary web UI)")
+    web_p.add_argument("--host", default="127.0.0.1", help="host to bind (default: 127.0.0.1)")
+    web_p.add_argument("--port", type=int, default=8765, help="port to bind (default: 8765)")
+    web_p.add_argument("--no-open", action="store_true", help="do not open browser automatically")
+    web_p.set_defaults(func=cmd_ui)
     return p
 
 

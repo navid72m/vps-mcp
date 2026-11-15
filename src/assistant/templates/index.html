@@ -1,0 +1,1586 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Digital Secretary • Executive Cockpit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Vazirmatn:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07090e;
+      --surface: #0e131f;
+      --surface-card: #131b2e;
+      --surface-hover: #1a243d;
+      --border: #1e293b;
+      --border-focus: #38bdf8;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-subtle: #64748b;
+      --primary: #38bdf8;
+      --primary-glow: rgba(56, 189, 248, 0.2);
+      --accent: #818cf8;
+      --success: #34d399;
+      --success-bg: rgba(52, 211, 153, 0.12);
+      --warning: #fbbf24;
+      --warning-bg: rgba(251, 191, 36, 0.12);
+      --danger: #f87171;
+      --danger-bg: rgba(248, 113, 113, 0.12);
+      --font-main: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-fa: 'Vazirmatn', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-main);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Layout */
+    #sidebar {
+      width: 270px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+      user-select: none;
+      z-index: 20;
+    }
+
+    #main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: radial-gradient(circle at 80% 10%, rgba(56, 189, 248, 0.04) 0%, transparent 40%),
+                  radial-gradient(circle at 20% 80%, rgba(129, 140, 248, 0.03) 0%, transparent 50%),
+                  var(--bg);
+    }
+
+    /* Header */
+    .brand-header {
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #0284c7, #6366f1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+      color: #fff;
+      font-weight: 700;
+      font-size: 1.15rem;
+    }
+    .brand-text h1 {
+      font-size: 0.98rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #fff;
+    }
+    .brand-text p {
+      font-size: 0.73rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pulse-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.9); }
+    }
+
+    /* Navigation */
+    .nav-list {
+      padding: 14px 10px;
+      flex: 1;
+      overflow-y: auto;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+    }
+    .nav-item:hover {
+      background: var(--surface-card);
+      color: var(--text);
+    }
+    .nav-item.active {
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .nav-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 6px;
+      bottom: 6px;
+      width: 3px;
+      border-radius: 0 4px 4px 0;
+      background: var(--primary);
+    }
+    .nav-icon {
+      font-size: 1.15rem;
+      width: 22px;
+      text-align: center;
+      display: inline-block;
+    }
+    .nav-badge {
+      margin-left: auto;
+      background: var(--danger);
+      color: white;
+      font-size: 0.7rem;
+      padding: 2px 7px;
+      border-radius: 12px;
+      font-weight: 700;
+      display: none;
+    }
+    .nav-badge.visible {
+      display: inline-block;
+    }
+
+    /* Operator Footer */
+    .operator-footer {
+      padding: 16px;
+      border-top: 1px solid var(--border);
+      background: rgba(14, 19, 31, 0.7);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .operator-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4f46e5, #06b6d4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+      color: white;
+      flex-shrink: 0;
+    }
+    .operator-info {
+      flex: 1;
+      overflow: hidden;
+    }
+    .operator-name {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+    .operator-title {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
+    }
+
+    /* Top Bar */
+    #topbar {
+      height: 64px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      background: rgba(14, 19, 31, 0.85);
+      backdrop-filter: blur(12px);
+      z-index: 10;
+    }
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .section-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+    }
+    .model-selector {
+      background: var(--surface-card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-family: inherit;
+      cursor: pointer;
+      outline: none;
+    }
+    .model-selector:focus {
+      border-color: var(--primary);
+    }
+    .time-chip {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 5px 10px;
+      border-radius: 6px;
+    }
+
+    /* View Container */
+    .view-pane {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: none;
+    }
+    .view-pane.active {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Common Card */
+    .card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-sub {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Chat View */
+    #view-chat {
+      padding: 0;
+      gap: 0;
+      height: calc(100vh - 64px);
+    }
+    .chat-layout {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .message-row {
+      display: flex;
+      gap: 12px;
+      max-width: 82%;
+    }
+    .message-row.user {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+    .message-row.assistant {
+      align-self: flex-start;
+    }
+    .message-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .message-row.user .message-avatar {
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      color: #fff;
+    }
+    .message-row.assistant .message-avatar {
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      color: #fff;
+    }
+    .message-bubble {
+      padding: 14px 18px;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      line-height: 1.58;
+      word-break: break-word;
+    }
+    .message-row.user .message-bubble {
+      background: #0284c7;
+      color: #fff;
+      border-bottom-right-radius: 2px;
+    }
+    .message-row.assistant .message-bubble {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-bottom-left-radius: 2px;
+    }
+    .message-bubble p { margin-bottom: 8px; }
+    .message-bubble p:last-child { margin-bottom: 0; }
+    .message-bubble ul { margin-left: 18px; margin-bottom: 8px; }
+    .message-bubble li { margin-bottom: 4px; }
+    .message-bubble pre {
+      background: #07090e;
+      border: 1px solid var(--border);
+      padding: 10px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 8px 0;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+    }
+    .message-bubble code {
+      font-family: var(--font-mono);
+      background: rgba(0, 0, 0, 0.3);
+      padding: 2px 5px;
+      border-radius: 4px;
+      font-size: 0.84rem;
+    }
+    .tools-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      color: #a5b4fc;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      margin-top: 8px;
+      font-family: var(--font-mono);
+    }
+    .message-time {
+      font-size: 0.68rem;
+      color: var(--text-subtle);
+      margin-top: 4px;
+      text-align: right;
+    }
+    .rtl-text {
+      direction: rtl;
+      font-family: var(--font-fa), var(--font-main);
+      text-align: right;
+    }
+
+    /* Chat Input Area */
+    .chat-input-container {
+      padding: 18px 24px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .prompt-chips {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+    .prompt-chip {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s;
+    }
+    .prompt-chip:hover {
+      background: var(--surface-hover);
+      color: var(--primary);
+      border-color: var(--primary);
+    }
+    .input-box-wrap {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    .chat-textarea {
+      flex: 1;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.92rem;
+      resize: none;
+      min-height: 48px;
+      max-height: 160px;
+      outline: none;
+      line-height: 1.4;
+      transition: border 0.15s;
+    }
+    .chat-textarea:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 2px var(--primary-glow);
+    }
+    .send-btn {
+      height: 48px;
+      padding: 0 20px;
+      background: linear-gradient(135deg, #0284c7, #0ea5e9);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .send-btn:hover {
+      filter: brightness(1.1);
+      box-shadow: 0 4px 14px rgba(14, 165, 233, 0.4);
+    }
+    .send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Approvals View */
+    .approval-card {
+      background: var(--surface-card);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+      position: relative;
+    }
+    .approval-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+    .approval-tool-badge {
+      font-family: var(--font-mono);
+      background: var(--warning-bg);
+      color: var(--warning);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .approval-preview {
+      background: #07090e;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      max-height: 240px;
+      overflow-y: auto;
+      margin: 12px 0;
+      color: #e2e8f0;
+    }
+    .approval-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      margin-top: 14px;
+    }
+    .btn-approve {
+      background: #059669;
+      color: white;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s;
+    }
+    .btn-approve:hover { background: #10b981; }
+    .btn-reject {
+      background: #dc2626;
+      color: white;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s;
+    }
+    .btn-reject:hover { background: #ef4444; }
+
+    /* Tables */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+    }
+    .data-table th {
+      text-align: left;
+      padding: 10px 14px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      font-weight: 600;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .data-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(30, 41, 59, 0.6);
+      color: var(--text);
+    }
+    .data-table tr:hover td {
+      background: var(--surface-hover);
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 0.74rem;
+      font-weight: 600;
+    }
+    .badge.success { background: var(--success-bg); color: var(--success); }
+    .badge.warning { background: var(--warning-bg); color: var(--warning); }
+    .badge.danger { background: var(--danger-bg); color: var(--danger); }
+    .badge.neutral { background: rgba(255,255,255,0.08); color: var(--text-muted); }
+
+    /* Metric Grid */
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+    .metric-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .metric-label {
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+    .metric-value {
+      font-size: 1.55rem;
+      font-weight: 700;
+      color: var(--text);
+      font-family: var(--font-mono);
+    }
+    .progress-bar-wrap {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 4px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 4px;
+      transition: width 0.3s;
+    }
+
+    /* RAG & Search */
+    .search-bar-wrap {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .search-input {
+      flex: 1;
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.9rem;
+      outline: none;
+    }
+    .search-input:focus { border-color: var(--primary); }
+    .btn-search {
+      background: var(--primary);
+      color: #07090e;
+      border: none;
+      padding: 0 20px;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .rag-result-card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .rag-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      font-family: var(--font-mono);
+    }
+    .rag-text {
+      font-size: 0.88rem;
+      line-height: 1.5;
+      color: #cbd5e1;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <div class="brand-header">
+      <div class="brand-logo">AG</div>
+      <div class="brand-text">
+        <h1>Digital Secretary</h1>
+        <p><span class="pulse-dot"></span> Online • Local AI</p>
+      </div>
+    </div>
+
+    <ul class="nav-list">
+      <li class="nav-item active" data-view="chat">
+        <span class="nav-icon">💬</span> Secretary Console
+      </li>
+      <li class="nav-item" data-view="approvals">
+        <span class="nav-icon">🛡️</span> Action Guardrail
+        <span class="nav-badge" id="approval-badge">0</span>
+      </li>
+      <li class="nav-item" data-view="desk">
+        <span class="nav-icon">📅</span> Agenda & Inbox
+      </li>
+      <li class="nav-item" data-view="kb">
+        <span class="nav-icon">📚</span> Knowledge Base RAG
+      </li>
+      <li class="nav-item" data-view="vps">
+        <span class="nav-icon">🖥️</span> VPS Infrastructure
+      </li>
+      <li class="nav-item" data-view="memory">
+        <span class="nav-icon">🧠</span> Profile & Memory
+      </li>
+      <li class="nav-item" data-view="schedules">
+        <span class="nav-icon">⏱️</span> Routines & Timers
+      </li>
+      <li class="nav-item" data-view="audit">
+        <span class="nav-icon">📜</span> Security Audit
+      </li>
+    </ul>
+
+    <div class="operator-footer">
+      <div class="operator-avatar" id="operator-initials">N</div>
+      <div class="operator-info">
+        <div class="operator-name" id="operator-name">Navid</div>
+        <div class="operator-title" id="operator-sub">Software Engineer @ Vandaw</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main View -->
+  <main id="main-content">
+    <!-- Topbar -->
+    <header id="topbar">
+      <div class="topbar-left">
+        <h2 class="section-title" id="section-heading">Secretary Console</h2>
+      </div>
+      <div class="topbar-right">
+        <div class="status-pill">
+          <span style="color: var(--text-muted);">Model:</span>
+          <select id="model-select" class="model-selector"></select>
+        </div>
+        <div class="time-chip" id="clock-display">--:--:--</div>
+      </div>
+    </header>
+
+    <!-- Tab 1: Chat Console -->
+    <section id="view-chat" class="view-pane active">
+      <div class="chat-layout">
+        <div class="chat-messages" id="chat-messages-container">
+          <!-- Welcome message -->
+          <div class="message-row assistant">
+            <div class="message-avatar">AG</div>
+            <div class="message-bubble">
+              <p><strong>Greetings, Navid.</strong> I am your personal digital secretary.</p>
+              <p>I have direct access to your <strong>Google Calendar</strong>, <strong>Gmail</strong>, <strong>VPS infrastructure</strong> (<em>185.141.106.87</em>), <strong>Knowledge Base</strong> (DDIA, research papers), and local laptop tools.</p>
+              <p>How may I assist you today?</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-input-container">
+          <div class="prompt-chips">
+            <div class="prompt-chip" onclick="quickPrompt('What is on my schedule today?')">📅 What's on my schedule today?</div>
+            <div class="prompt-chip" onclick="quickPrompt('Check VPS server health and list active services')">🖥️ Check VPS server health</div>
+            <div class="prompt-chip" onclick="quickPrompt('Summarize my unread emails')">📬 Summarize unread emails</div>
+            <div class="prompt-chip" onclick="quickPrompt('Search Knowledge Base for linearizability in DDIA')">📖 Search DDIA for linearizability</div>
+            <div class="prompt-chip" onclick="quickPrompt('What do you remember about my preferences?')">🧠 What do you remember about me?</div>
+          </div>
+          <div class="input-box-wrap">
+            <textarea id="chat-input" class="chat-textarea" placeholder="Ask your secretary anything... (Press Enter to send, Shift+Enter for newline)"></textarea>
+            <button id="chat-send" class="send-btn" onclick="sendChat()">
+              <span>Send</span>
+              <span>→</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 2: Action Guardrail -->
+    <section id="view-approvals" class="view-pane">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">🔐 Pending Sensitive Actions</h3>
+            <p class="card-sub">Actions requiring operator confirmation before execution on your VPS or laptop.</p>
+          </div>
+          <button class="btn-search" style="padding: 6px 14px;" onclick="loadApprovals()">Refresh</button>
+        </div>
+        <div id="pending-approvals-list">
+          <p style="color: var(--text-muted); font-size: 0.88rem;">No pending approvals at the moment.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">📜 Historical Approvals</h3>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Server</th>
+              <th>Tool</th>
+              <th>Target / Parameters</th>
+              <th>Created</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="approvals-history-tbody">
+            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Tab 3: Agenda & Inbox -->
+    <section id="view-desk" class="view-pane">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <!-- Calendar -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">📅 Google Calendar Agenda</h3>
+              <p class="card-sub">Upcoming events and meetings.</p>
+            </div>
+            <button class="btn-search" style="padding: 5px 12px; font-size: 0.8rem;" onclick="loadCalendar()">Refresh</button>
+          </div>
+          <div id="calendar-events-list">
+            <p style="color: var(--text-muted); font-size: 0.88rem;">Loading calendar...</p>
+          </div>
+        </div>
+
+        <!-- Gmail -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">📬 Gmail Executive Inbox</h3>
+              <p class="card-sub">Unread incoming messages.</p>
+            </div>
+            <button class="btn-search" style="padding: 5px 12px; font-size: 0.8rem;" onclick="loadEmails()">Refresh</button>
+          </div>
+          <div id="gmail-messages-list">
+            <p style="color: var(--text-muted); font-size: 0.88rem;">Loading emails...</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 4: Knowledge Base RAG -->
+    <section id="view-kb" class="view-pane">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">📚 Indexed Library</h3>
+            <p class="card-sub">Technical books and documents ingested into FAISS vector space.</p>
+          </div>
+        </div>
+        <div id="kb-docs-grid" class="metric-grid" style="grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));">
+          <p style="color: var(--text-muted);">Loading library...</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">🔍 Semantic Vector Search</h3>
+          <p class="card-sub">Query indexed books with exact page citations.</p>
+        </div>
+        <div class="search-bar-wrap">
+          <input type="text" id="kb-search-input" class="search-input" placeholder="e.g. linearizability vs serializability, LSM tree compaction, replication lag..." onkeydown="if(event.key==='Enter') executeKbSearch()">
+          <button class="btn-search" onclick="executeKbSearch()">Search Books</button>
+        </div>
+        <div id="kb-results-list"></div>
+      </div>
+    </section>
+
+    <!-- Tab 5: VPS Infrastructure -->
+    <section id="view-vps" class="view-pane">
+      <div class="metric-grid">
+        <div class="metric-card">
+          <div class="metric-label">CPU Load Average (1m / 5m / 15m)</div>
+          <div class="metric-value" id="vps-cpu-load">-- / -- / --</div>
+          <div class="card-sub" id="vps-cpu-cores">10 vCPUs (Linux)</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">RAM Utilization</div>
+          <div class="metric-value" id="vps-ram-val">-- GB / -- GB</div>
+          <div class="progress-bar-wrap">
+            <div id="vps-ram-bar" class="progress-fill" style="width: 0%;"></div>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Primary Disk Space (/)</div>
+          <div class="metric-value" id="vps-disk-val">-- GB / -- GB</div>
+          <div class="progress-bar-wrap">
+            <div id="vps-disk-bar" class="progress-fill" style="width: 0%; background: #f59e0b;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">⚙️ Managed Services & Containers</h3>
+            <p class="card-sub">Target VPS: <code>185.141.106.87</code> (jafarzadeh)</p>
+          </div>
+          <button class="btn-search" style="padding: 6px 14px;" onclick="loadVpsOverview()">Refresh</button>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Service / Container</th>
+              <th>Kind</th>
+              <th>Status</th>
+              <th>Uptime</th>
+              <th>Boot Start</th>
+            </tr>
+          </thead>
+          <tbody id="vps-services-tbody">
+            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading services...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Tab 6: Profile & Memory -->
+    <section id="view-memory" class="view-pane">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">🧠 Operator Identity & Facts ("Knows Me")</h3>
+            <p class="card-sub">What your assistant has learned about your workflow, preferences, and identity.</p>
+          </div>
+        </div>
+        <div id="memory-facts-grid" class="metric-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));">
+          <p style="color: var(--text-muted);">Loading facts...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 7: Routines & Cadences -->
+    <section id="view-schedules" class="view-pane">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">⏱️ Active Schedules & Reminders</h3>
+            <p class="card-sub">Automated recurring briefings and timers.</p>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Cadence</th>
+              <th>Prompt / Instruction</th>
+              <th>Next Run</th>
+              <th>State</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="schedules-tbody">
+            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading schedules...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Tab 8: Security Audit -->
+    <section id="view-audit" class="view-pane">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">📜 Immutable Activity Trail</h3>
+            <p class="card-sub">Every model call, tool execution, and approval logged to SQLite.</p>
+          </div>
+          <button class="btn-search" style="padding: 6px 14px;" onclick="loadAudit()">Refresh</button>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Origin</th>
+              <th>Kind</th>
+              <th>Tool / Target</th>
+              <th>Outcome</th>
+            </tr>
+          </thead>
+          <tbody id="audit-tbody">
+            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading audit log...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <script>
+    // State
+    let currentView = 'chat';
+    let availableModels = [];
+    let currentModel = '';
+
+    // Clock
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clock-display').innerText = now.toLocaleTimeString('en-US', { hour12: false });
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Navigation
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const view = item.getAttribute('data-view');
+        switchView(view);
+      });
+    });
+
+    function switchView(view) {
+      currentView = view;
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+      const activeNav = document.querySelector(`.nav-item[data-view="${view}"]`);
+      if (activeNav) activeNav.classList.add('active');
+
+      document.querySelectorAll('.view-pane').forEach(p => p.classList.remove('active'));
+      const activePane = document.getElementById(`view-${view}`);
+      if (activePane) activePane.classList.add('active');
+
+      const headings = {
+        'chat': 'Secretary Console',
+        'approvals': 'Action Guardrail & Approvals',
+        'desk': 'Executive Desk • Calendar & Inbox',
+        'kb': 'Knowledge Base Vector RAG',
+        'vps': 'VPS Infrastructure Telemetry',
+        'memory': 'Operator Profile & Shared Memory',
+        'schedules': 'Scheduled Routines & Timers',
+        'audit': 'Immutable Security Audit Trail'
+      };
+      document.getElementById('section-heading').innerText = headings[view] || 'Dashboard';
+
+      // Refresh on switch
+      if (view === 'approvals') loadApprovals();
+      if (view === 'desk') { loadCalendar(); loadEmails(); }
+      if (view === 'kb') loadKbDocs();
+      if (view === 'vps') loadVpsOverview();
+      if (view === 'memory') loadMemory();
+      if (view === 'schedules') loadSchedules();
+      if (view === 'audit') loadAudit();
+    }
+
+    // Status & Models
+    async function loadStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        
+        // Update approval badge
+        const badge = document.getElementById('approval-badge');
+        if (data.pending_approvals_count > 0) {
+          badge.innerText = data.pending_approvals_count;
+          badge.classList.add('visible');
+        } else {
+          badge.classList.remove('visible');
+        }
+
+        // Models
+        const modelRes = await fetch('/api/models');
+        const modelData = await modelRes.json();
+        const select = document.getElementById('model-select');
+        select.innerHTML = '';
+        modelData.models.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m.alias;
+          opt.innerText = `${m.alias} (${m.name})`;
+          if (m.alias === modelData.active) opt.selected = true;
+          select.appendChild(opt);
+        });
+        currentModel = modelData.active;
+      } catch (err) {
+        console.error('Status load error:', err);
+      }
+    }
+
+    document.getElementById('model-select').addEventListener('change', async (e) => {
+      const alias = e.target.value;
+      try {
+        await fetch('/api/models/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: alias })
+        });
+        currentModel = alias;
+      } catch (err) {
+        alert('Failed to switch model: ' + err);
+      }
+    });
+
+    // Chat
+    async function sendChat() {
+      const textarea = document.getElementById('chat-input');
+      const text = textarea.value.trim();
+      if (!text) return;
+
+      appendChatMessage('user', text);
+      textarea.value = '';
+      textarea.style.height = '48px';
+
+      const sendBtn = document.getElementById('chat-send');
+      sendBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+        const data = await res.json();
+        appendChatMessage('assistant', data.response, data.tools);
+      } catch (err) {
+        appendChatMessage('assistant', '⚠️ Error contacting secretary: ' + err);
+      } finally {
+        sendBtn.disabled = false;
+        loadStatus();
+      }
+    }
+
+    function isFarsi(text) {
+      const farsiPattern = /[\u0600-\u06FF]/;
+      return farsiPattern.test(text);
+    }
+
+    function formatMarkdown(text) {
+      if (!text) return '';
+      let escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      
+      // bold
+      escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+      // code block
+      escaped = escaped.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+      // inline code
+      escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
+      // bullet points
+      escaped = escaped.replace(/^[\*\-] (.*$)/gim, '<li>$1</li>');
+      escaped = escaped.replace(/(<li>.*<\/li>)/gms, '<ul>$1</ul>');
+      // newlines
+      escaped = escaped.replace(/\n\n/g, '</p><p>');
+      escaped = escaped.replace(/\n/g, '<br>');
+      return `<p>${escaped}</p>`;
+    }
+
+    function appendChatMessage(role, text, tools = []) {
+      const container = document.getElementById('chat-messages-container');
+      const row = document.createElement('div');
+      row.className = `message-row ${role}`;
+      
+      const avatar = document.createElement('div');
+      avatar.className = 'message-avatar';
+      avatar.innerText = role === 'user' ? 'N' : 'AG';
+
+      const bubble = document.createElement('div');
+      bubble.className = 'message-bubble';
+      if (isFarsi(text)) bubble.classList.add('rtl-text');
+
+      bubble.innerHTML = formatMarkdown(text);
+
+      if (tools && tools.length > 0) {
+        const toolDiv = document.createElement('div');
+        toolDiv.className = 'tools-tag';
+        toolDiv.innerHTML = `⚙️ Tools: ${tools.join(', ')}`;
+        bubble.appendChild(toolDiv);
+      }
+
+      row.appendChild(avatar);
+      row.appendChild(bubble);
+      container.appendChild(row);
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function quickPrompt(txt) {
+      document.getElementById('chat-input').value = txt;
+      sendChat();
+    }
+
+    document.getElementById('chat-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChat();
+      }
+    });
+
+    // Approvals
+    async function loadApprovals() {
+      try {
+        const res = await fetch('/api/approvals');
+        const data = await res.json();
+        
+        const listDiv = document.getElementById('pending-approvals-list');
+        listDiv.innerHTML = '';
+        if (!data.pending || data.pending.length === 0) {
+          listDiv.innerHTML = '<p style="color: var(--text-muted); font-size: 0.88rem;">No pending approvals at the moment.</p>';
+        } else {
+          data.pending.forEach(ap => {
+            const card = document.createElement('div');
+            card.className = 'approval-card';
+            card.innerHTML = `
+              <div class="approval-header">
+                <div>
+                  <span class="approval-tool-badge">${ap.server} · ${ap.tool}</span>
+                  <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px;">ID: ${ap.id} • Expires: ${ap.expires}</div>
+                </div>
+              </div>
+              <div class="approval-preview">${ap.preview || 'No preview available'}</div>
+              <div class="approval-actions">
+                <button class="btn-reject" onclick="handleApprovalAction('${ap.id}', 'rejected')">❌ Reject Action</button>
+                <button class="btn-approve" onclick="handleApprovalAction('${ap.id}', 'approved')">✅ Approve Action</button>
+              </div>
+            `;
+            listDiv.appendChild(card);
+          });
+        }
+
+        // History
+        const tbody = document.getElementById('approvals-history-tbody');
+        tbody.innerHTML = '';
+        if (!data.history || data.history.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No historical records found.</td></tr>';
+        } else {
+          data.history.forEach(h => {
+            const tr = document.createElement('tr');
+            let badgeClass = 'neutral';
+            if (h.status === 'approved') badgeClass = 'success';
+            if (h.status === 'rejected') badgeClass = 'danger';
+            if (h.status === 'pending') badgeClass = 'warning';
+            tr.innerHTML = `
+              <td><code>${h.id}</code></td>
+              <td>${h.server}</td>
+              <td><code>${h.tool}</code></td>
+              <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${h.args_json || ''}</td>
+              <td>${h.created || ''}</td>
+              <td><span class="badge ${badgeClass}">${h.status}</span></td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+      } catch (err) {
+        console.error('Approvals load error:', err);
+      }
+    }
+
+    async function handleApprovalAction(aid, action) {
+      try {
+        await fetch(`/api/approvals/${aid}/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action })
+        });
+        loadApprovals();
+        loadStatus();
+      } catch (err) {
+        alert('Action failed: ' + err);
+      }
+    }
+
+    // Calendar & Email
+    async function loadCalendar() {
+      const container = document.getElementById('calendar-events-list');
+      container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.88rem;">Refreshing calendar events...</p>';
+      try {
+        const res = await fetch('/api/calendar');
+        const data = await res.json();
+        container.innerHTML = '';
+        if (!data.events || data.events.length === 0) {
+          container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.88rem;">No upcoming events found on your Google Calendar.</p>';
+        } else {
+          data.events.forEach(ev => {
+            const div = document.createElement('div');
+            div.style.padding = '12px 0';
+            div.style.borderBottom = '1px solid var(--border)';
+            div.innerHTML = `
+              <div style="font-weight: 600; font-size: 0.92rem; color: var(--text);">${ev.summary}</div>
+              <div style="font-size: 0.78rem; color: var(--primary); margin-top: 3px;">${ev.time_span || ev.start}</div>
+              ${ev.attendees && ev.attendees.length ? `<div style="font-size: 0.74rem; color: var(--text-muted); margin-top: 2px;">With: ${ev.attendees.join(', ')}</div>` : ''}
+            `;
+            container.appendChild(div);
+          });
+        }
+      } catch (err) {
+        container.innerHTML = '<p style="color: var(--danger); font-size: 0.88rem;">Failed to fetch calendar.</p>';
+      }
+    }
+
+    async function loadEmails() {
+      const container = document.getElementById('gmail-messages-list');
+      container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.88rem;">Checking Gmail inbox...</p>';
+      try {
+        const res = await fetch('/api/email');
+        const data = await res.json();
+        container.innerHTML = '';
+        if (!data.messages || data.messages.length === 0) {
+          container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.88rem;">No unread messages in your inbox.</p>';
+        } else {
+          data.messages.forEach(m => {
+            const div = document.createElement('div');
+            div.style.padding = '12px 0';
+            div.style.borderBottom = '1px solid var(--border)';
+            div.innerHTML = `
+              <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                <span style="font-size: 0.78rem; color: var(--text-muted);">${m.from || 'Unknown'}</span>
+                <span style="font-size: 0.72rem; color: var(--text-subtle);">${m.date || ''}</span>
+              </div>
+              <div style="font-weight: 600; font-size: 0.88rem; color: var(--text);">${m.subject || '(No subject)'}</div>
+              <div style="font-size: 0.78rem; color: var(--text-muted); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${m.snippet || ''}</div>
+            `;
+            container.appendChild(div);
+          });
+        }
+      } catch (err) {
+        container.innerHTML = '<p style="color: var(--danger); font-size: 0.88rem;">Failed to fetch inbox.</p>';
+      }
+    }
+
+    // Knowledge Base
+    async function loadKbDocs() {
+      try {
+        const res = await fetch('/api/knowledge-base');
+        const data = await res.json();
+        const grid = document.getElementById('kb-docs-grid');
+        grid.innerHTML = '';
+        if (!data.documents || data.documents.length === 0) {
+          grid.innerHTML = '<p style="color: var(--text-muted);">No documents indexed in Knowledge Base.</p>';
+        } else {
+          data.documents.forEach(d => {
+            const card = document.createElement('div');
+            card.className = 'metric-card';
+            card.innerHTML = `
+              <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <span style="font-size: 1.4rem;">📖</span>
+                <span class="badge success">${d.chunk_count} chunks</span>
+              </div>
+              <div style="font-weight: 700; font-size: 0.95rem; color: var(--text); margin-top: 6px;">${d.title}</div>
+              <div style="font-size: 0.76rem; color: var(--text-muted);">Author: ${d.author || 'Unknown'}</div>
+              <div style="font-size: 0.72rem; color: var(--text-subtle); font-family: var(--font-mono); margin-top: 4px;">ID: ${d.doc_id} • ${(d.file_size/1024/1024).toFixed(1)} MB</div>
+            `;
+            grid.appendChild(card);
+          });
+        }
+      } catch (err) {
+        console.error('KB docs load error:', err);
+      }
+    }
+
+    async function executeKbSearch() {
+      const q = document.getElementById('kb-search-input').value.trim();
+      if (!q) return;
+
+      const container = document.getElementById('kb-results-list');
+      container.innerHTML = '<p style="color: var(--text-muted);">Running dense vector search...</p>';
+
+      try {
+        const res = await fetch('/api/knowledge-base/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q, top_k: 4 })
+        });
+        const data = await res.json();
+        container.innerHTML = '';
+        if (!data.results || data.results.length === 0) {
+          container.innerHTML = '<p style="color: var(--text-muted);">No matching passages found.</p>';
+        } else {
+          data.results.forEach((r, idx) => {
+            const card = document.createElement('div');
+            card.className = 'rag-result-card';
+            card.innerHTML = `
+              <div class="rag-meta">
+                <span><strong>${r.title}</strong> • Page ${r.page || r.chunk_index + 1}</span>
+                <span style="color: var(--primary);">Score: ${r.score}</span>
+              </div>
+              <div class="rag-text">${r.text}</div>
+            `;
+            container.appendChild(card);
+          });
+        }
+      } catch (err) {
+        container.innerHTML = '<p style="color: var(--danger);">Search failed: ' + err + '</p>';
+      }
+    }
+
+    // VPS Infrastructure
+    async function loadVpsOverview() {
+      try {
+        const res = await fetch('/api/vps');
+        const data = await res.json();
+        
+        // Host metrics
+        if (data.resources) {
+          const r = data.resources;
+          if (r.load_avg) {
+            document.getElementById('vps-cpu-load').innerText = r.load_avg.join(' / ');
+          }
+          if (r.cpu_count) {
+            document.getElementById('vps-cpu-cores').innerText = `${r.cpu_count} vCPUs (Ubuntu 22.04 LTS)`;
+          }
+          if (r.mem_total_bytes && r.mem_used_bytes) {
+            const usedGb = (r.mem_used_bytes / 1e9).toFixed(1);
+            const totalGb = (r.mem_total_bytes / 1e9).toFixed(1);
+            const pct = Math.round((r.mem_used_bytes / r.mem_total_bytes) * 100);
+            document.getElementById('vps-ram-val').innerText = `${usedGb} GB / ${totalGb} GB (${pct}%)`;
+            document.getElementById('vps-ram-bar').style.width = `${pct}%`;
+          }
+          if (r.volumes && r.volumes.length) {
+            const v = r.volumes[0];
+            const usedGb = (v.used_bytes / 1e9).toFixed(0);
+            const totalGb = (v.total_bytes / 1e9).toFixed(0);
+            const pct = Math.round((v.used_bytes / v.total_bytes) * 100);
+            document.getElementById('vps-disk-val').innerText = `${usedGb} GB / ${totalGb} GB (${pct}%)`;
+            document.getElementById('vps-disk-bar').style.width = `${pct}%`;
+          }
+        }
+
+        // Services table
+        const tbody = document.getElementById('vps-services-tbody');
+        tbody.innerHTML = '';
+        if (!data.services || data.services.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No services reported.</td></tr>';
+        } else {
+          data.services.forEach(s => {
+            const tr = document.createElement('tr');
+            const isUp = s.state === 'running' || s.state === 'active' || s.health === 'healthy';
+            tr.innerHTML = `
+              <td><strong>${s.name}</strong></td>
+              <td><span class="badge neutral">${s.kind || 'service'}</span></td>
+              <td><span class="badge ${isUp ? 'success' : 'danger'}">${s.state || 'unknown'}</span></td>
+              <td>${s.uptime || s.status || '--'}</td>
+              <td>${s.boot ? 'Enabled' : 'Disabled'}</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+      } catch (err) {
+        console.error('VPS load error:', err);
+      }
+    }
+
+    // Memory
+    async function loadMemory() {
+      try {
+        const res = await fetch('/api/memory');
+        const data = await res.json();
+        const grid = document.getElementById('memory-facts-grid');
+        grid.innerHTML = '';
+        if (!data.facts || data.facts.length === 0) {
+          grid.innerHTML = '<p style="color: var(--text-muted);">No memories recorded yet.</p>';
+        } else {
+          data.facts.forEach(f => {
+            const card = document.createElement('div');
+            card.className = 'metric-card';
+            card.innerHTML = `
+              <div style="font-size: 0.72rem; color: var(--primary); font-family: var(--font-mono);">${f.subject}</div>
+              <div style="font-weight: 600; font-size: 0.92rem; color: var(--text);">${f.title}</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.4;">${f.content || ''}</div>
+            `;
+            grid.appendChild(card);
+          });
+        }
+      } catch (err) {
+        console.error('Memory load error:', err);
+      }
+    }
+
+    // Schedules
+    async function loadSchedules() {
+      try {
+        const res = await fetch('/api/schedules');
+        const data = await res.json();
+        const tbody = document.getElementById('schedules-tbody');
+        tbody.innerHTML = '';
+        if (!data.schedules || data.schedules.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No schedules configured.</td></tr>';
+        } else {
+          data.schedules.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td><strong>${s.name}</strong></td>
+              <td><code>${s.cadence}</code></td>
+              <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${s.prompt}</td>
+              <td style="font-size: 0.78rem;">${s.next_run || '--'}</td>
+              <td><span class="badge ${s.enabled ? 'success' : 'neutral'}">${s.enabled ? 'Active' : 'Paused'}</span></td>
+              <td>
+                <button class="btn-search" style="padding: 4px 10px; font-size: 0.75rem;" onclick="toggleSchedule('${s.name}')">
+                  ${s.enabled ? 'Pause' : 'Resume'}
+                </button>
+              </td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+      } catch (err) {
+        console.error('Schedules load error:', err);
+      }
+    }
+
+    async function toggleSchedule(name) {
+      try {
+        await fetch(`/api/schedules/${name}/toggle`, { method: 'POST' });
+        loadSchedules();
+      } catch (err) {
+        alert('Toggle failed: ' + err);
+      }
+    }
+
+    // Audit
+    async function loadAudit() {
+      try {
+        const res = await fetch('/api/audit');
+        const data = await res.json();
+        const tbody = document.getElementById('audit-tbody');
+        tbody.innerHTML = '';
+        if (!data.records || data.records.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No audit records found.</td></tr>';
+        } else {
+          data.records.forEach(r => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td style="font-size: 0.75rem; font-family: var(--font-mono);">${r.ts || ''}</td>
+              <td><span class="badge neutral">${r.origin || ''}</span></td>
+              <td><code>${r.kind || ''}</code></td>
+              <td style="font-size: 0.8rem; font-family: var(--font-mono);">${r.tool || r.target || ''}</td>
+              <td><span class="badge ${r.outcome === 'success' || r.outcome === 'approved' ? 'success' : 'neutral'}">${r.outcome || ''}</span></td>
+            `;
+            tbody.appendChild(tr);
+          });
+        }
+      } catch (err) {
+        console.error('Audit load error:', err);
+      }
+    }
+
+    // Initial load
+    loadStatus();
+    setInterval(loadStatus, 15000); // 15s poll for approvals & status
+  </script>
+</body>
+</html>
