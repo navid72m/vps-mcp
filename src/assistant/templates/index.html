@@ -7,6 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Vazirmatn:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <script src="/static/marked.min.js"></script>
+  <script>
+    if (typeof marked === 'undefined') {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+      document.head.appendChild(s);
+    }
+  </script>
   <style>
     :root {
       --bg: #07090e;
@@ -340,7 +348,7 @@
     .message-row {
       display: flex;
       gap: 12px;
-      max-width: 82%;
+      max-width: 85%;
     }
     .message-row.user {
       align-self: flex-end;
@@ -348,6 +356,7 @@
     }
     .message-row.assistant {
       align-self: flex-start;
+      max-width: 95%;
     }
     .message-avatar {
       width: 32px;
@@ -375,6 +384,7 @@
       font-size: 0.9rem;
       line-height: 1.58;
       word-break: break-word;
+      overflow-x: auto;
     }
     .message-row.user .message-bubble {
       background: #0284c7;
@@ -389,7 +399,7 @@
     }
     .message-bubble p { margin-bottom: 8px; }
     .message-bubble p:last-child { margin-bottom: 0; }
-    .message-bubble ul { margin-left: 18px; margin-bottom: 8px; }
+    .message-bubble ul, .message-bubble ol { margin-left: 20px; margin-bottom: 8px; }
     .message-bubble li { margin-bottom: 4px; }
     .message-bubble pre {
       background: #07090e;
@@ -407,6 +417,91 @@
       padding: 2px 5px;
       border-radius: 4px;
       font-size: 0.84rem;
+    }
+    /* Chat Headings & Typography */
+    .message-bubble h1,
+    .message-bubble h2,
+    .message-bubble h3,
+    .message-bubble h4 {
+      color: #fff;
+      font-weight: 700;
+      margin-top: 14px;
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+    .message-bubble h1 { font-size: 1.15rem; }
+    .message-bubble h2 {
+      font-size: 1.05rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 4px;
+    }
+    .message-bubble h3 { font-size: 0.95rem; color: var(--primary); }
+    .message-bubble h4 { font-size: 0.88rem; color: var(--text-muted); }
+    .message-bubble hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 14px 0;
+    }
+    .message-bubble blockquote {
+      border-left: 3px solid var(--primary);
+      background: rgba(56, 189, 248, 0.05);
+      padding: 6px 12px;
+      margin: 8px 0;
+      border-radius: 0 4px 4px 0;
+      color: var(--text-muted);
+      font-size: 0.86rem;
+    }
+    /* Responsive Markdown Tables */
+    .table-responsive {
+      overflow-x: auto;
+      margin: 12px 0;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #080c14;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+    .message-bubble table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+      text-align: left;
+    }
+    .message-bubble th {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--primary);
+      padding: 9px 14px;
+      font-weight: 600;
+      border-bottom: 2px solid var(--border);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    .message-bubble td {
+      padding: 9px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      vertical-align: top;
+    }
+    .message-bubble tr:last-child td {
+      border-bottom: none;
+    }
+    .message-bubble tr:hover td {
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .message-bubble td code,
+    .message-bubble th code {
+      background: rgba(56, 189, 248, 0.1);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 0.8rem;
+      font-family: var(--font-mono);
+    }
+    .message-bubble strong {
+      color: #fff;
+      font-weight: 600;
     }
     .tools-tag {
       display: inline-flex;
@@ -1214,26 +1309,107 @@
       return farsiPattern.test(text);
     }
 
+    function customMarkdownParser(text) {
+      if (!text) return '';
+      
+      // 1. Code blocks protection
+      const codeBlocks = [];
+      let str = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+        const id = `@@CODE_BLOCK_${codeBlocks.length}@@`;
+        const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        codeBlocks.push(`<pre><code class="lang-${lang}">${escaped}</code></pre>`);
+        return id;
+      });
+
+      // 2. Escape HTML entities in remainder
+      str = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+      function parseInline(inline) {
+        return inline
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+          .replace(/\*(.*?)\*/g, '<em>$1</em>')
+          .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      }
+
+      // 3. Parse Markdown Tables
+      str = str.replace(/((?:^[ \t]*\|.+\|[ \t]*$\n?)+)/gm, (tableMatch) => {
+        const rawLines = tableMatch.trim().split('\n').map(l => l.trim()).filter(Boolean);
+        if (rawLines.length < 2) return tableMatch;
+
+        const isSep = /^\|?([ \t]*:?-+:?[ \t]*\|)+$/.test(rawLines[1]);
+        if (!isSep) return tableMatch;
+
+        const parseRow = (line) => {
+          return line.replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+        };
+
+        const headers = parseRow(rawLines[0]);
+        const alignments = parseRow(rawLines[1]).map(c => {
+          if (c.startsWith(':') && c.endsWith(':')) return 'center';
+          if (c.endsWith(':')) return 'right';
+          return 'left';
+        });
+
+        let thHtml = headers.map((h, i) => {
+          const align = alignments[i] || 'left';
+          const inner = parseInline(h);
+          return `<th style="text-align:${align}">${inner}</th>`;
+        }).join('');
+
+        let rowsHtml = '';
+        for (let i = 2; i < rawLines.length; i++) {
+          const cells = parseRow(rawLines[i]);
+          const tds = cells.map((cell, idx) => {
+            const align = alignments[idx] || 'left';
+            const inner = parseInline(cell);
+            return `<td style="text-align:${align}">${inner}</td>`;
+          }).join('');
+          rowsHtml += `<tr>${tds}</tr>`;
+        }
+
+        return `<div class="table-responsive"><table><thead><tr>${thHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>\n`;
+      });
+
+      // 4. Headings
+      str = str.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+      str = str.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+      str = str.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+      // 5. Horizontal rules
+      str = str.replace(/^(\-{3,}|\*{3,}|_{3,})$/gim, '<hr>');
+
+      // 6. Inline elements
+      str = parseInline(str);
+
+      // 7. Bullet and numbered lists
+      str = str.replace(/^[\*\-] (.*$)/gim, '<li>$1</li>');
+      str = str.replace(/(<li>.*<\/li>(\n)?)+/gm, '<ul>$&</ul>');
+
+      // 8. Restore code blocks
+      codeBlocks.forEach((block, idx) => {
+        str = str.replace(`@@CODE_BLOCK_${idx}@@`, block);
+      });
+
+      // 9. Paragraphs & Line breaks
+      str = str.replace(/\n\n+/g, '</p><p>');
+      str = str.replace(/([^>\n])\n([^<\n])/g, '$1<br>$2');
+
+      return `<p>${str}</p>`;
+    }
+
     function formatMarkdown(text) {
       if (!text) return '';
-      let escaped = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      
-      // bold
-      escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-      // code block
-      escaped = escaped.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
-      // inline code
-      escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
-      // bullet points
-      escaped = escaped.replace(/^[\*\-] (.*$)/gim, '<li>$1</li>');
-      escaped = escaped.replace(/(<li>.*<\/li>)/gms, '<ul>$1</ul>');
-      // newlines
-      escaped = escaped.replace(/\n\n/g, '</p><p>');
-      escaped = escaped.replace(/\n/g, '<br>');
-      return `<p>${escaped}</p>`;
+      if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+        try {
+          let html = marked.parse(text, { gfm: true, breaks: true });
+          html = html.replace(/<table>/g, '<div class="table-responsive"><table>').replace(/<\/table>/g, '</table></div>');
+          return html;
+        } catch (e) {
+          console.warn('marked.parse error, using fallback:', e);
+        }
+      }
+      return customMarkdownParser(text);
     }
 
     function appendChatMessage(role, text, tools = [], ts = null) {

@@ -78,6 +78,12 @@ class WebSecretaryApp:
     async def index(self, request: Request) -> Response:
         return HTMLResponse(_read_index_html())
 
+    async def static_marked(self, request: Request) -> Response:
+        path = TEMPLATES_DIR / "marked.min.js"
+        if path.is_file():
+            return Response(path.read_text(encoding="utf-8"), media_type="application/javascript")
+        return Response("", status_code=404)
+
     async def api_status(self, request: Request) -> JSONResponse:
         today = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
         budget = self.state.budget_get(today)
@@ -717,6 +723,7 @@ def create_web_app(cfg: cfgmod.Config | None = None) -> Starlette:
     handler = WebSecretaryApp(cfg)
     routes = [
         Route("/", handler.index, methods=["GET"]),
+        Route("/static/marked.min.js", handler.static_marked, methods=["GET"]),
         Route("/api/status", handler.api_status, methods=["GET"]),
         Route("/api/models", handler.api_models, methods=["GET"]),
         Route("/api/models/switch", handler.api_models_switch, methods=["POST"]),
