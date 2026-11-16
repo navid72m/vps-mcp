@@ -7,11 +7,23 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Vazirmatn:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/katex.min.css">
   <script src="/static/marked.min.js"></script>
+  <script src="/static/katex.min.js"></script>
   <script>
     if (typeof marked === 'undefined') {
       const s = document.createElement('script');
       s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+      document.head.appendChild(s);
+    }
+    if (typeof katex === 'undefined') {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css';
+      document.head.appendChild(link);
+
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js';
       document.head.appendChild(s);
     }
   </script>
@@ -502,6 +514,36 @@
     .message-bubble strong {
       color: #fff;
       font-weight: 600;
+    }
+    /* KaTeX Mathematical Formulas */
+    .message-bubble .katex-display {
+      margin: 14px 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 12px 16px;
+      background: rgba(14, 21, 37, 0.75);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+    .message-bubble .katex {
+      font-size: 1.05em;
+      color: #f1f5f9;
+    }
+    .message-bubble .katex-display > .katex {
+      white-space: normal;
+      text-align: center;
+    }
+    .message-bubble .katex .katex-html {
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+    .message-bubble .katex-display .katex .mord.boxed {
+      border: 1.5px solid var(--primary);
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(56, 189, 248, 0.05);
     }
     .tools-tag {
       display: inline-flex;
@@ -1400,16 +1442,76 @@
 
     function formatMarkdown(text) {
       if (!text) return '';
+
+      const mathTokens = [];
+
+      // 1. Block Math: $$ ... $$
+      text = text.replace(/\$\$([\s\S]*?)\$\$/g, (m, math) => {
+        const id = '@@MATHBLOCK_' + mathTokens.length + '@@';
+        mathTokens.push({ id, math: math.trim(), isDisplay: true });
+        return id;
+      });
+
+      // 2. Block Math: \[ ... \]
+      text = text.replace(/\\\[([\s\S]*?)\\\]/g, (m, math) => {
+        const id = '@@MATHBLOCK_' + mathTokens.length + '@@';
+        mathTokens.push({ id, math: math.trim(), isDisplay: true });
+        return id;
+      });
+
+      // 3. Block Math: Standalone [ \boxed{...} ] or [ \frac{...} ]
+      text = text.replace(/(?:^|\n)[ \t]*\[[ \t]*\n([\s\S]*?\\[a-zA-Z]+[\s\S]*?)\n[ \t]*\][ \t]*(?:\n|$)/g, (m, math) => {
+        const id = '@@MATHBLOCK_' + mathTokens.length + '@@';
+        mathTokens.push({ id, math: math.trim(), isDisplay: true });
+        return '\n' + id + '\n';
+      });
+
+      // 4. Inline Math: \( ... \)
+      text = text.replace(/\\\(([\s\S]*?)\\\)/g, (m, math) => {
+        const id = '@@MATHINLINE_' + mathTokens.length + '@@';
+        mathTokens.push({ id, math: math.trim(), isDisplay: false });
+        return id;
+      });
+
+      // 5. Inline Math: $ ... $ (excluding escaped \$)
+      text = text.replace(/(^|[^\\])\$([^\$\n]+?)\$/g, (m, prefix, math) => {
+        const id = '@@MATHINLINE_' + mathTokens.length + '@@';
+        mathTokens.push({ id, math: math.trim(), isDisplay: false });
+        return prefix + id;
+      });
+
+      let html = '';
       if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
         try {
-          let html = marked.parse(text, { gfm: true, breaks: true });
+          html = marked.parse(text, { gfm: true, breaks: true });
           html = html.replace(/<table>/g, '<div class="table-responsive"><table>').replace(/<\/table>/g, '</table></div>');
-          return html;
         } catch (e) {
           console.warn('marked.parse error, using fallback:', e);
+          html = customMarkdownParser(text);
         }
+      } else {
+        html = customMarkdownParser(text);
       }
-      return customMarkdownParser(text);
+
+      mathTokens.forEach(t => {
+        let rendered = '';
+        if (typeof katex !== 'undefined' && typeof katex.renderToString === 'function') {
+          try {
+            rendered = katex.renderToString(t.math, {
+              displayMode: t.isDisplay,
+              throwOnError: false
+            });
+          } catch (err) {
+            console.warn('KaTeX rendering error for:', t.math, err);
+            rendered = `<code class="math-fallback">${t.math}</code>`;
+          }
+        } else {
+          rendered = `<code class="math-fallback">${t.math}</code>`;
+        }
+        html = html.split(t.id).join(rendered);
+      });
+
+      return html;
     }
 
     function appendChatMessage(role, text, tools = [], ts = null) {

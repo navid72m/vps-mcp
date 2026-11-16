@@ -84,6 +84,18 @@ class WebSecretaryApp:
             return Response(path.read_text(encoding="utf-8"), media_type="application/javascript")
         return Response("", status_code=404)
 
+    async def static_katex_js(self, request: Request) -> Response:
+        path = TEMPLATES_DIR / "katex.min.js"
+        if path.is_file():
+            return Response(path.read_text(encoding="utf-8"), media_type="application/javascript")
+        return Response("", status_code=404)
+
+    async def static_katex_css(self, request: Request) -> Response:
+        path = TEMPLATES_DIR / "katex.min.css"
+        if path.is_file():
+            return Response(path.read_text(encoding="utf-8"), media_type="text/css")
+        return Response("", status_code=404)
+
     async def api_status(self, request: Request) -> JSONResponse:
         today = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
         budget = self.state.budget_get(today)
@@ -732,6 +744,8 @@ def create_web_app(cfg: cfgmod.Config | None = None) -> Starlette:
     routes = [
         Route("/", handler.index, methods=["GET"]),
         Route("/static/marked.min.js", handler.static_marked, methods=["GET"]),
+        Route("/static/katex.min.js", handler.static_katex_js, methods=["GET"]),
+        Route("/static/katex.min.css", handler.static_katex_css, methods=["GET"]),
         Route("/api/status", handler.api_status, methods=["GET"]),
         Route("/api/models", handler.api_models, methods=["GET"]),
         Route("/api/models/switch", handler.api_models_switch, methods=["POST"]),

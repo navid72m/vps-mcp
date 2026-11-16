@@ -35,6 +35,20 @@ def test_index_route(test_app: TestClient):
     assert "Action Guardrail" in res.text
 
 
+def test_static_assets(test_app: TestClient):
+    res_marked = test_app.get("/static/marked.min.js")
+    assert res_marked.status_code == 200
+    assert "javascript" in res_marked.headers.get("content-type", "")
+
+    res_katex_js = test_app.get("/static/katex.min.js")
+    assert res_katex_js.status_code == 200
+    assert "javascript" in res_katex_js.headers.get("content-type", "")
+
+    res_katex_css = test_app.get("/static/katex.min.css")
+    assert res_katex_css.status_code == 200
+    assert "text/css" in res_katex_css.headers.get("content-type", "")
+
+
 def test_api_status(test_app: TestClient):
     res = test_app.get("/api/status")
     assert res.status_code == 200
