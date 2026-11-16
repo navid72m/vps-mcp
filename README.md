@@ -1,7 +1,8 @@
 # VPS-MCP & Digital Secretary
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
-[![Architecture](https://img.shields.io/badge/architecture-MCP%20%7C%20FastAPI%20%7C%20Starlette-purple.svg)](https://modelcontextprotocol.io)
+[![Glama MCP Server](https://glama.ai/mcp/servers/navid72m/vps-mcp/badges/score.svg)](https://glama.ai/mcp/servers/navid72m/vps-mcp)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-io.github.navid72m%2Fvps--mcp-blue.svg)](https://registry.modelcontextprotocol.io)
 [![Tools](https://img.shields.io/badge/tools-90%2B%20catalog-teal.svg)](#the-90-tool-ecosystem)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
