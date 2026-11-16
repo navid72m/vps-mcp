@@ -549,8 +549,35 @@ def build_context(
     return app
 
 
-def build_server(config_path: str | Path) -> MCPServer:
-    config = load_config(config_path)
-    for name in ("vps_mcp", "asyncssh", "mcp", "httpx2", "httpcore"):
-        install_redaction(logging.getLogger(name), config.secret_strings)
-    return create_server(build_context(config))
+def build_server(config_path: str | Path | None = None) -> MCPServer:
+    import os
+    if config_path is None:
+        env_cfg = os.environ.get("VPS_MCP_CONFIG")
+        if env_cfg and Path(env_cfg).is_file():
+            config_path = env_cfg
+    if config_path is not None and Path(config_path).is_file():
+        config = load_config(config_path)
+        for name in ("vps_mcp", "asyncssh", "mcp", "httpx2", "httpcore"):
+            install_redaction(logging.getLogger(name), config.secret_strings)
+        return create_server(build_context(config))
+
+    # Self-contained inspection / fallback configuration (for Glama container introspection)
+    import tempfile
+
+    from vps_mcp.config.policy import AppConfig, Policy, TargetVPS
+    from vps_mcp.gitlab.config import GitLabSettings
+    from vps_mcp.migration.config import AnalysisTarget, MigrationSettings
+
+    kh = Path(tempfile.gettempdir()) / "vps_mcp_introspection_known_hosts"
+    if not kh.is_file():
+        kh.write_text("127.0.0.1 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI0000000000000000000000000000000000000000000\n")
+
+    fallback_cfg = AppConfig(
+        vps=TargetVPS(name="default", host="127.0.0.1", port=22, known_hosts_path=str(kh)),
+        policy=Policy(read_only=True),
+        migration=MigrationSettings(
+            target=[AnalysisTarget(name="prod_db")]
+        ),
+        gitlab=GitLabSettings(url="https://gitlab.example.com", keychain_account="demo"),
+    )
+    return create_server(build_context(fallback_cfg, keychain_reader=lambda *a: "mock_token"))

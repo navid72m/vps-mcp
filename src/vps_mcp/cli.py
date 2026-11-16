@@ -316,7 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("serve", help="run the MCP server on stdio")
-    s.add_argument("--config", required=True)
+    s.add_argument("--config", default=None, help="path to vps policy TOML file")
     s.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     s.set_defaults(func=_cmd_serve)
 
