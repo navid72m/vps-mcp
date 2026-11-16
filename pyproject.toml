@@ -1,7 +1,7 @@
 [project]
 name = "vps-mcp"
 version = "0.1.0"
-description = "MCP server that manages systemd services and containers on a remote VPS over SSH"
+description = "Autonomous Digital Secretary & MCP platform: VPS infrastructure, PostgreSQL/Odoo migration rehearsals, GitLab CI/CD, dense Knowledge Base RAG, Google Workspace, personal Telegram MTProto, and Executive Web Cockpit"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

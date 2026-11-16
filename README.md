@@ -1,62 +1,46 @@
-# vps-mcp
+# VPS-MCP & Digital Secretary
 
-An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant (Claude Code, Claude
-Desktop, LM Studio, …) manage **one VPS** safely:
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Architecture](https://img.shields.io/badge/architecture-MCP%20%7C%20FastAPI%20%7C%20Starlette-purple.svg)](https://modelcontextprotocol.io)
+[![Tools](https://img.shields.io/badge/tools-90%2B%20catalog-teal.svg)](#the-90-tool-ecosystem)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-- **Services** (16 tools): systemd services and Docker/Podman containers. Covers status, logs,
-  resource usage, start/stop/restart, boot-start, deploy, update, configure (with diff preview
-  and automatic rollback) and removal.
-- **Migration analysis** (13 optional tools): inspect Odoo/PostgreSQL databases, compare two
-  databases into a risk report with a verdict, and rehearse an upgrade pipeline on a disposable
-  copy.
-- **Declared jobs** (4 optional tools): run operator-owned scripts, such as a full rehearsal,
-  through a plan → confirm → watch → report flow.
-- **GitLab** (15 optional tools): read code, history, issues, merge requests and CI of allowlisted
-  projects with your own token, from the macOS Keychain. Open issues and MRs, and deploy a reviewed
-  commit to the VPS with automatic rollback.
-- **Personal assistant** (`assistant`): an always-on agent of its own that you talk to on
-  Telegram. It uses these tools and the shared memory, and asks for approval on your phone
-  before any change. See [Personal assistant](#personal-assistant).
-- **Google Workspace** (4 tools): Google Calendar (`calendar__events`, `calendar__create_event`)
-  and Gmail (`email__inbox`, `email__send`) via OAuth 2.0, with `/agenda` and `/inbox` commands
-  and phone approval for outgoing emails.
-- **Personal Telegram** (5 tools): Connects to your own personal Telegram account via MTProto session
-  (`tg_user__*`). Search your personal chats, read unread messages, and send messages with interactive
-  approval gating.
-- **Knowledge Base RAG** (6 tools): Dedicated vector library for reading books, research papers,
-  and PDFs (`kb__search`, `kb__ask`, `kb__list`, `kb__read`, `kb__add`, `kb__remove`). Powered by
-  dense FAISS vector indexing and SentenceTransformers (`all-MiniLM-L6-v2`), with exact page citations.
-  **Completely isolated from personal memory (`agent-memory`)**.
-- **Memory** (5 tools, on by default): **agent-memory**, a managed knowledge store shared by every
-  agent and project. It holds facts, decisions, procedures and experiences, with where each one
-  came from, how confident it is, and when it expires. It is also a standalone MCP server that
-  agents can use for work that has nothing to do with the VPS.
+An enterprise-grade **Model Context Protocol (MCP)** platform and autonomous **Executive Digital Secretary** that bridges AI models (Claude, Groq, DeepSeek, Qwen, Nemotron) with real-world infrastructure, enterprise databases, Git workflows, knowledge libraries, and personal productivity channels.
 
-The server runs **on your laptop**. Your MCP client starts it over stdio, and it reaches the VPS
-over SSH. Nothing runs permanently on the VPS: it only needs a dedicated user and a sudoers file
-(rehearsals and jobs add transient systemd units and files under `/var/lib/vps-mcp`).
+The system runs locally on your machine, communicating over secure SSH to remote servers without requiring persistent background daemons on target hosts.
 
-### What it gives your agent
+---
 
-- **Structured answers instead of shell sessions.** "Is Odoo healthy?" is one tool call that
-  returns compact JSON, not a series of `ssh`/`grep`/`psql` commands and raw output. That saves
-  tokens, and smaller local models can do the job too.
-- **Safe changes.** Every state change previews first and needs `confirm=true`, and is
-  health-checked, rolled back on failure and audited.
-- **Migration judgement.** The agent can compare an upgraded database with its source and give a
-  `safe_to_promote` / `review_warnings` / `do_not_promote` verdict backed by findings.
-- **Long jobs it can watch.** The agent can start a declared multi-hour script, check its progress
-  later (even from another session) and get a final report.
-- **From GitLab to the VPS.** "Deploy tag v1.5 of the addons" shows the commit, changed files,
-  pipeline status and services affected. Once you confirm, that exact commit goes live; if a
-  service fails its health check, the previous version comes back automatically.
-- **A memory that follows you across clients and projects.** A new session in Claude Code,
-  OpenCode or LM Studio starts with the key procedures, decisions and open issues, and finds the
-  rest with a task-aware search. Every memory records where it came from and how sure it is.
-  Outdated facts are superseded rather than left lying around.
-- **Hard limits from your config, not from the prompt.** There's no arbitrary command, SQL or
-  script. Only declared services, databases and jobs are reachable, the SSH service is untouchable,
-  and `read_only = true` turns off every write tool.
+### Core Platform Pillars
+
+- **Executive Web Cockpit & Telegram Assistant (`assistant`)**:
+  A local dark-mode command center ([`http://127.0.0.1:8765`](http://127.0.0.1:8765)) and always-on Telegram bot with multi-model routing (Groq, DeepSeek, local Qwen via LM Studio, Nemotron), multi-step tool execution loops, GFM Markdown tables, and human-in-the-loop action approval guardrails for sensitive actions.
+- **Remote Infrastructure & Services (16 tools)**:
+  Zero-footprint management of systemd services and Docker/Podman containers over SSH. Features live telemetry, journalctl log inspection, restart/stop/boot controls, and declarative configuration deployment with syntax diff previews and automatic rollback on health-check failure.
+- **Database & Migration Rehearsal (13 tools)**:
+  Deep PostgreSQL and Odoo schema inspection, database-to-database diffing with automated risk verdict generation (`safe_to_promote`, `review_warnings`, `do_not_promote`), and deterministic upgrade rehearsals on disposable copy databases.
+- **GitLab CI/CD & Production Deployments (15 tools)**:
+  Direct integration with self-hosted or cloud GitLab instances. Inspect commits, merge requests, branches, and pipeline jobs; verify deployment targets; and trigger zero-downtime ref rollouts to production with automatic health verification.
+- **Knowledge Base Dense Semantic RAG (6 tools)**:
+  Dedicated vector library for indexing technical books (e.g. *Designing Data-Intensive Applications*), research papers, and documents using FAISS and SentenceTransformers (`all-MiniLM-L6-v2`) with page-level citations. Completely isolated from operator profile memory.
+- **Google Workspace Integration (8 tools)**:
+  OAuth 2.0 integration for Google Calendar (`calendar__events`, `calendar__create`) and Gmail (`email__inbox`, `email__send`, `email__draft`), with interactive phone and desktop approval gating for outgoing communications.
+- **Personal Telegram MTProto Client (5 tools)**:
+  Telethon-powered user client integration for searching personal chats, reading incoming messages, and sending direct messages under approval gating.
+- **Shared Agent Memory (`agent-memory`, 5 tools)**:
+  Cross-client and cross-project knowledge store holding facts, architectural decisions, procedures, and operator profiles with confidence scores, provenance tracking, and expiration policies.
+- **Modular Lazy Tool Catalog (90+ Tools)**:
+  Over 90 tools organized into modular toolsets (`services`, `db`, `migration`, `gitlab`, `jobs`, `files`, `kb`, `calendar`, `email`, `memory`, `telegram`) to keep prompt token counts minimal and prevent LLM rate-limiting.
+
+---
+
+### What It Gives Your Agent
+
+- **Structured JSON Answers instead of Fragile Shell Sessions**: "Is Odoo healthy?" is a single, typed tool call returning compact telemetry, eliminating raw SSH shell scraping and keeping token usage minimal for smaller models.
+- **Guaranteed Safety & Human-in-the-Loop Approvals**: Sensitive write operations (service restart, file modification, database copy drops, outgoing emails) pause for explicit confirmation via the phone messenger or Web Cockpit.
+- **Zero-Footprint Server Architecture**: Nothing runs permanently on target servers. Only an SSH key, a dedicated unprivileged user, and a minimal sudoers profile are required.
+- **Deterministic Upgrade Confidence**: Run full migration rehearsal pipelines on isolated clone databases before touching production data.
+- **Multi-Model Flexibility**: Switch models on the fly between lightning-fast cloud APIs (Groq `gpt-oss-120b`, DeepSeek) and completely private offline local weights (Qwen 2.5 via LM Studio).
 
 Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (services),
 [`specs/002-odoo-migration-analysis/`](specs/002-odoo-migration-analysis/) (migration),
@@ -75,6 +59,7 @@ Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (se
 
 ## Contents
 
+- [The 90+ Tool Ecosystem](#the-90-tool-ecosystem)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Connect your MCP client](#connect-your-mcp-client)
@@ -93,6 +78,28 @@ Design documents: [`specs/001-vps-service-mcp/`](specs/001-vps-service-mcp/) (se
 - [Configuration reference](#configuration-reference)
 - [Troubleshooting](#troubleshooting)
 - [Development](#development)
+
+---
+
+## The 90+ Tool Ecosystem
+
+The platform exposes over 90 specialized tools divided across **VPS/GitLab MCP services** and **Digital Secretary built-ins**, orchestrated with token-saving lazy loading:
+
+| Domain | Tools | Primary Tools | Capabilities |
+|---|---|---|---|
+| **VPS Infrastructure & Systemd** | 16 | `list_services`, `get_resource_usage`, `restart_service`, `configure_service` | CPU/RAM/Disk metrics, journalctl logs, state mutation, declarative config rollback |
+| **PostgreSQL & Odoo DBs** | 5 | `db_list`, `db_overview`, `db_modules`, `db_table`, `db_compare` | Schema introspection, installed modules, table row counts, live database comparisons |
+| **Migration Rehearsals** | 8 | `rehearse`, `rehearsal_status`, `run_check`, `get_report` | Automated upgrade pipelines on disposable copy databases, finding analysis, risk verdicts |
+| **GitLab CI/CD & Deploy** | 15 | `gitlab_commits`, `gitlab_pipelines`, `deploy_from_gitlab` | Inspect repos, branches, MRs, CI jobs, verify targets, zero-downtime production deployments |
+| **Declared Background Jobs** | 4 | `list_jobs`, `run_job`, `job_status`, `cancel_job` | Script integrity verification, background execution tracking, automated final reports |
+| **Knowledge Base Semantic RAG** | 6 | `kb__search`, `kb__ask`, `kb__list`, `kb__add` | Dense vector search across technical books (*DDIA*) and PDFs with exact page-level citations |
+| **Local Machine Filesystem** | 8 | `files__read`, `files__write`, `files__edit`, `files__search` | Safe local file management with directory traversal protection and size caps |
+| **Google Workspace** | 8 | `calendar__events`, `calendar__create`, `email__inbox`, `email__send` | Calendar agenda tracking, meeting links, unread emails, and gated draft sending |
+| **Personal Telegram MTProto** | 5 | `tg_user__inbox`, `tg_user__search`, `tg_user__send` | Search personal dialogs, read incoming messages, interact under confirmation gating |
+| **Persistent Agent Memory** | 8 | `memory__search`, `memory__save`, `me__remember` | Cross-agent facts, procedures, decay policies, operator profile cards ("Knows Me") |
+| **Background Cadences & Web** | 7 | `schedule__list`, `schedule__add`, `web__search`, `web__read` | Cron routines, automated morning briefings, live web research with domain filtering |
+
+---
 
 ## Requirements
 
