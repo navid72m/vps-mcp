@@ -11,6 +11,15 @@ The system runs locally on your machine, communicating over secure SSH to remote
 
 ---
 
+<p align="center">
+  <img src="docs/images/cockpit-demo.png" alt="Executive Web Cockpit Demo" width="95%">
+</p>
+<p align="center">
+  <em>The Executive Web Cockpit running on <code>http://127.0.0.1:8765</code> with real-time tool execution, live model switching, responsive GFM table rendering, and server telemetry.</em>
+</p>
+
+---
+
 ### Core Platform Pillars
 
 - **Executive Web Cockpit & Telegram Assistant (`assistant`)**:
@@ -781,6 +790,10 @@ In addition to Telegram, you can launch a local, dark-mode web control center:
 uv run assistant ui
 # or: uv run assistant web --port 8765
 ```
+
+<p align="center">
+  <img src="docs/images/cockpit-demo.png" alt="Digital Secretary Executive Web Cockpit" width="95%">
+</p>
 
 - **Secretary Console**: Full desktop chat with on-the-fly model switcher (`groq`, `deepseek`, `qwen`, `nemotron`).
 - **Action Guardrail**: Review pending sensitive actions (emails, service restarts, file modifications) with syntax-highlighted previews, diffs, and 1-click **Approve** / **Reject** buttons.
