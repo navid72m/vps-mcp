@@ -588,6 +588,47 @@ class WebSecretaryApp:
         new_conv = self.state.conversation_new(chat_id, now_iso())
         return JSONResponse({"ok": True, "cid": new_conv["id"]})
 
+    async def api_chat_sessions(self, request: Request) -> JSONResponse:
+        chat_id = self.cfg.telegram.allowed_user_ids[0] if self.cfg.telegram.allowed_user_ids else 1000
+        limit = int(request.query_params.get("limit", 40))
+        query = """
+            SELECT c.id, c.started, c.last_activity, c.status,
+                   COALESCE(
+                       (SELECT text FROM turns WHERE conversation = c.id AND role = 'user' ORDER BY id ASC LIMIT 1),
+                       'New Conversation'
+                   ) as title,
+                   (SELECT COUNT(*) FROM turns WHERE conversation = c.id) as turn_count
+            FROM conversations c
+            WHERE c.chat_id = ?
+            ORDER BY c.last_activity DESC
+            LIMIT ?
+        """
+        rows = self.state.x(query, (chat_id, limit)).fetchall()
+        cur = self.state.conversation_current(chat_id)
+        current_id = str(cur["id"]) if cur else ""
+        sessions = []
+        for r in rows:
+            raw_title = (r["title"] or "").strip().split("\n")[0].strip() or "New Conversation"
+            title = (raw_title[:57] + "…") if len(raw_title) > 60 else raw_title
+            sessions.append(
+                {
+                    "id": r["id"],
+                    "started": r["started"],
+                    "last_activity": r["last_activity"],
+                    "status": r["status"],
+                    "title": title,
+                    "turn_count": r["turn_count"],
+                    "is_current": r["id"] == current_id,
+                }
+            )
+        return JSONResponse({"sessions": sessions, "current_id": current_id})
+
+    async def api_chat_session_delete(self, request: Request) -> JSONResponse:
+        cid = request.path_params["cid"]
+        self.state.x("DELETE FROM turns WHERE conversation = ?", (cid,))
+        self.state.x("DELETE FROM conversations WHERE id = ?", (cid,))
+        return JSONResponse({"ok": True, "id": cid})
+
     # ---------------------------------------------------------------- Approvals
     async def api_approvals(self, request: Request) -> JSONResponse:
         pending = self.state.approvals_pending()
@@ -752,6 +793,8 @@ def create_web_app(cfg: cfgmod.Config | None = None) -> Starlette:
         Route("/api/chat", handler.api_chat, methods=["POST"]),
         Route("/api/chat/history", handler.api_chat_history, methods=["GET"]),
         Route("/api/chat/new", handler.api_chat_new, methods=["POST"]),
+        Route("/api/chat/sessions", handler.api_chat_sessions, methods=["GET"]),
+        Route("/api/chat/sessions/{cid}", handler.api_chat_session_delete, methods=["DELETE"]),
         Route("/api/approvals", handler.api_approvals, methods=["GET"]),
         Route("/api/approvals/{aid}/action", handler.api_approval_action, methods=["POST"]),
         Route("/api/calendar", handler.api_calendar, methods=["GET"]),

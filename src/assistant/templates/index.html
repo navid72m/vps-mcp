@@ -195,6 +195,154 @@
       display: inline-block;
     }
 
+    /* Sidebar Chat Sessions Drawer */
+    .chat-drawer-container {
+      display: flex;
+      flex-direction: column;
+      margin: 2px 4px 8px 12px;
+      padding: 8px 8px 6px 8px;
+      background: rgba(15, 23, 42, 0.45);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      border-radius: 8px;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .chat-drawer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 2px 4px 6px 4px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+    }
+    .chat-drawer-heading {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+    .drawer-new-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: var(--primary);
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .drawer-new-btn:hover {
+      background: var(--primary);
+      color: #0b0f19;
+      border-color: var(--primary);
+      transform: translateY(-1px);
+    }
+    .chat-sessions-list {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      max-height: 270px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    .chat-sessions-list::-webkit-scrollbar {
+      width: 4px;
+    }
+    .chat-sessions-list::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.25);
+      border-radius: 4px;
+    }
+    .chat-session-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+      position: relative;
+      user-select: none;
+    }
+    .chat-session-item:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .chat-session-item.active {
+      background: rgba(56, 189, 248, 0.12);
+      border-color: rgba(56, 189, 248, 0.3);
+    }
+    .chat-session-item.active::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 5px;
+      bottom: 5px;
+      width: 2.5px;
+      background: var(--primary);
+      border-radius: 0 2px 2px 0;
+    }
+    .session-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      flex: 1;
+      min-width: 0;
+    }
+    .session-title {
+      font-size: 0.80rem;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chat-session-item.active .session-title {
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .session-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.68rem;
+      color: var(--text-muted);
+    }
+    .session-meta .dot {
+      font-size: 0.5rem;
+      opacity: 0.6;
+    }
+    .session-delete-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 3px 5px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      opacity: 0;
+      transition: all 0.15s ease;
+      margin-left: 4px;
+      line-height: 1;
+    }
+    .chat-session-item:hover .session-delete-btn {
+      opacity: 0.65;
+    }
+    .session-delete-btn:hover {
+      opacity: 1 !important;
+      color: var(--danger);
+      background: rgba(239, 68, 68, 0.18);
+    }
+    .chat-sessions-empty, .chat-sessions-loading {
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 14px 6px;
+    }
+
     /* Operator Footer */
     .operator-footer {
       padding: 16px;
@@ -871,6 +1019,17 @@
       <li class="nav-item active" data-view="chat">
         <span class="nav-icon">💬</span> Secretary Console
       </li>
+      <li id="sidebar-chat-drawer" class="chat-drawer-container">
+        <div class="chat-drawer-header">
+          <span class="chat-drawer-heading">Conversations</span>
+          <button id="drawer-new-chat-btn" class="drawer-new-btn" title="Start new conversation" onclick="startNewChat(event)">
+            + New
+          </button>
+        </div>
+        <div id="chat-sessions-list" class="chat-sessions-list">
+          <div class="chat-sessions-loading">Loading chats…</div>
+        </div>
+      </li>
       <li class="nav-item" data-view="approvals">
         <span class="nav-icon">🛡️</span> Action Guardrail
         <span class="nav-badge" id="approval-badge">0</span>
@@ -1217,6 +1376,17 @@
       };
       document.getElementById('section-heading').innerText = headings[view] || 'Dashboard';
 
+      // Toggle Chat Sessions drawer in sidebar
+      const drawer = document.getElementById('sidebar-chat-drawer');
+      if (drawer) {
+        if (view === 'chat') {
+          drawer.style.display = 'flex';
+          loadChatSessions();
+        } else {
+          drawer.style.display = 'none';
+        }
+      }
+
       // Refresh on switch
       if (view === 'approvals') loadApprovals();
       if (view === 'desk') { loadCalendar(); loadEmails(); }
@@ -1274,32 +1444,175 @@
       }
     });
 
-    // Chat
-    async function loadChatHistory() {
+    // Chat Sessions & History
+    function formatRelativeTime(isoStr) {
+      if (!isoStr) return '';
+      const date = new Date(isoStr);
+      const now = new Date();
+      const diffSec = Math.floor((now - date) / 1000);
+      if (isNaN(diffSec) || diffSec < 0) return 'Just now';
+      if (diffSec < 60) return 'Just now';
+      const diffMin = Math.floor(diffSec / 60);
+      if (diffMin < 60) return `${diffMin}m ago`;
+      const diffHour = Math.floor(diffMin / 60);
+      if (diffHour < 24) return `${diffHour}h ago`;
+      const diffDay = Math.floor(diffHour / 24);
+      if (diffDay === 1) return 'Yesterday';
+      if (diffDay < 7) return `${diffDay}d ago`;
+      return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+
+    async function loadChatSessions() {
+      const container = document.getElementById('chat-sessions-list');
+      if (!container) return;
       try {
-        const res = await fetch('/api/chat/history');
+        const res = await fetch('/api/chat/sessions');
+        const data = await res.json();
+        const sessions = data.sessions || [];
+
+        const savedCid = localStorage.getItem('assistant_active_cid');
+        if (!currentCid) {
+          if (savedCid && sessions.some(s => s.id === savedCid)) {
+            currentCid = savedCid;
+          } else if (data.current_id && sessions.some(s => s.id === data.current_id)) {
+            currentCid = data.current_id;
+          } else if (sessions.length > 0) {
+            currentCid = sessions[0].id;
+          }
+        }
+
+        if (sessions.length === 0) {
+          container.innerHTML = '<div class="chat-sessions-empty">No conversation history yet.</div>';
+          return;
+        }
+
+        container.innerHTML = '';
+        sessions.forEach(sess => {
+          const item = document.createElement('div');
+          const isActive = sess.id === currentCid;
+          item.className = 'chat-session-item' + (isActive ? ' active' : '');
+          item.dataset.cid = sess.id;
+          item.onclick = (e) => {
+            if (e.target.closest('.session-delete-btn')) return;
+            selectChatSession(sess.id);
+          };
+
+          const info = document.createElement('div');
+          info.className = 'session-info';
+          
+          const title = document.createElement('div');
+          title.className = 'session-title';
+          title.innerText = sess.title || 'New Conversation';
+          title.title = sess.title || 'New Conversation';
+
+          const meta = document.createElement('div');
+          meta.className = 'session-meta';
+          const timeStr = formatRelativeTime(sess.last_activity || sess.started);
+          const turnStr = sess.turn_count ? `${sess.turn_count} msg${sess.turn_count > 1 ? 's' : ''}` : 'Empty';
+          meta.innerHTML = `<span>${timeStr}</span><span class="dot">•</span><span>${turnStr}</span>`;
+
+          info.appendChild(title);
+          info.appendChild(meta);
+
+          const delBtn = document.createElement('button');
+          delBtn.className = 'session-delete-btn';
+          delBtn.title = 'Delete chat session';
+          delBtn.innerHTML = '🗑️';
+          delBtn.onclick = (e) => {
+            e.stopPropagation();
+            deleteChatSession(sess.id);
+          };
+
+          item.appendChild(info);
+          item.appendChild(delBtn);
+          container.appendChild(item);
+        });
+      } catch (err) {
+        console.error('Failed to load chat sessions:', err);
+        if (container) container.innerHTML = '<div class="chat-sessions-empty" style="color:var(--danger);">Error loading sessions</div>';
+      }
+    }
+
+    async function selectChatSession(cid) {
+      if (!cid) return;
+      currentCid = cid;
+      localStorage.setItem('assistant_active_cid', cid);
+
+      document.querySelectorAll('.chat-session-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.cid === cid);
+      });
+
+      await loadChatHistory(cid);
+    }
+
+    async function deleteChatSession(cid) {
+      if (!confirm('Are you sure you want to delete this chat session?')) return;
+      try {
+        const res = await fetch(`/api/chat/sessions/${encodeURIComponent(cid)}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.ok) {
+          if (currentCid === cid) {
+            currentCid = '';
+            localStorage.removeItem('assistant_active_cid');
+            await loadChatSessions();
+            if (currentCid) {
+              await loadChatHistory(currentCid);
+            } else {
+              await startNewChat();
+            }
+          } else {
+            await loadChatSessions();
+          }
+        }
+      } catch (err) {
+        alert('Failed to delete chat session: ' + err);
+      }
+    }
+
+    async function loadChatHistory(cid = null) {
+      try {
+        const targetCid = cid || currentCid || '';
+        const url = targetCid ? `/api/chat/history?cid=${encodeURIComponent(targetCid)}` : '/api/chat/history';
+        const res = await fetch(url);
         const data = await res.json();
         if (data.cid) {
           currentCid = data.cid;
+          localStorage.setItem('assistant_active_cid', data.cid);
         }
+        const container = document.getElementById('chat-messages-container');
+        container.innerHTML = '';
         if (data.turns && data.turns.length > 0) {
-          const container = document.getElementById('chat-messages-container');
-          container.innerHTML = '';
           data.turns.forEach(t => {
             appendChatMessage(t.role, t.text, t.tools, t.ts);
           });
+        } else {
+          container.innerHTML = `
+            <div class="message-row assistant">
+              <div class="message-avatar">AG</div>
+              <div class="message-bubble">
+                <p><strong>Greetings, Navid.</strong> I am your personal digital secretary.</p>
+                <p>I have direct access to your <strong>Google Calendar</strong>, <strong>Gmail</strong>, <strong>VPS infrastructure</strong> (<em>185.141.106.87</em>), <strong>Knowledge Base</strong> (DDIA, research papers), and local laptop tools.</p>
+                <p>How may I assist you today?</p>
+              </div>
+            </div>
+          `;
         }
+        container.scrollTop = container.scrollHeight;
       } catch (err) {
         console.error('Chat history load error:', err);
       }
     }
 
-    async function startNewChat() {
-      if (!confirm('Start a fresh conversation session? (Previous chat history is preserved in SQLite)')) return;
+    async function startNewChat(e) {
+      if (e) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
       try {
         const res = await fetch('/api/chat/new', { method: 'POST' });
         const data = await res.json();
         currentCid = data.cid;
+        localStorage.setItem('assistant_active_cid', data.cid);
         const container = document.getElementById('chat-messages-container');
         container.innerHTML = `
           <div class="message-row assistant">
@@ -1310,6 +1623,7 @@
             </div>
           </div>
         `;
+        await loadChatSessions();
       } catch (err) {
         alert('Failed to start new chat: ' + err);
       }
@@ -1336,6 +1650,7 @@
         const data = await res.json();
         if (data.cid) {
           currentCid = data.cid;
+          localStorage.setItem('assistant_active_cid', data.cid);
         }
         appendChatMessage('assistant', data.response, data.tools, data.ts);
       } catch (err) {
@@ -1343,6 +1658,7 @@
       } finally {
         sendBtn.disabled = false;
         loadStatus();
+        loadChatSessions();
       }
     }
 
@@ -1915,7 +2231,9 @@
 
     // Initial load
     loadStatus();
-    loadChatHistory();
+    loadChatSessions().then(() => {
+      loadChatHistory(currentCid);
+    });
     setInterval(loadStatus, 15000); // 15s poll for approvals & status
   </script>
 </body>

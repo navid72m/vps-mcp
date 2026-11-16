@@ -147,3 +147,35 @@ def test_api_chat_tool_calling(monkeypatch, test_app: TestClient):
     assert "schedule__list" in data["tools"]
     assert step == 2
 
+
+def test_api_chat_sessions_and_delete(test_app: TestClient):
+    # 1. Fetch sessions
+    res = test_app.get("/api/chat/sessions")
+    assert res.status_code == 200
+    data = res.json()
+    assert "sessions" in data
+    assert isinstance(data["sessions"], list)
+
+    # 2. Create a new session
+    n_res = test_app.post("/api/chat/new")
+    assert n_res.status_code == 200
+    new_cid = n_res.json()["cid"]
+
+    # 3. Fetch sessions again and verify new_cid is present
+    res2 = test_app.get("/api/chat/sessions")
+    assert res2.status_code == 200
+    sessions = res2.json()["sessions"]
+    cids = [s["id"] for s in sessions]
+    assert new_cid in cids
+
+    # 4. Delete the session
+    d_res = test_app.delete(f"/api/chat/sessions/{new_cid}")
+    assert d_res.status_code == 200
+    assert d_res.json()["ok"] is True
+
+    # 5. Verify it's no longer in sessions
+    res3 = test_app.get("/api/chat/sessions")
+    cids3 = [s["id"] for s in res3.json()["sessions"]]
+    assert new_cid not in cids3
+
+
