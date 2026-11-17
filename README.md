@@ -240,14 +240,17 @@ tool-calling support.
 Every client that uses the same `--config` shares the same [memory](#memory), so a note written
 in one client can be found by the next session in all of them.
 
-### Surface Modes: Full (45 Tools) vs Compact (13 Tools)
+### Surface Modes: Compact (Default) vs Full Granular
 
-By default, `vps-mcp serve` exposes the full granular catalog (45 tools). For LLM clients that benefit from a tighter tool surface (reducing token cost and routing errors), use `--mode compact`:
+By default, `vps-mcp serve` exposes the consolidated compact catalog (13 action-based tools) to optimize LLM routing and reduce schema context token consumption by ~70%.
+
+To expose the granular 45-tool catalog instead, pass `--mode full` or set `VPS_MCP_MODE=full`:
 
 ```bash
-uv run vps-mcp serve --config ~/.config/vps-mcp/myvps.toml --mode compact
+uv run vps-mcp serve --config ~/.config/vps-mcp/myvps.toml --mode full
 ```
-*(Or set `export VPS_MCP_MODE=compact`)*
+
+*(Or omit `--mode` to use the default `compact` surface)*
 
 This consolidates the 45 granular tools into **13 action-based tools**, reducing schema token overhead by ~70%:
 * `assess_infrastructure`: Holistic VPS health verdict, compute load, RAM, storage headroom, runtimes, and warnings.

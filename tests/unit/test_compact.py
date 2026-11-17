@@ -163,3 +163,34 @@ def test_cli_mode_flag_parsing():
     args_full = p.parse_args(["serve", "--mode", "full"])
     assert args_full.mode == "full"
 
+
+def test_build_server_defaults_to_compact():
+    from vps_mcp.server import build_server
+
+    s = build_server()
+    # In fallback introspection mode: 4 base + 3 migration + 4 gitlab = 11 compact tools
+    assert len(s._tool_manager.list_tools()) == 11
+    names = {t.name for t in s._tool_manager.list_tools()}
+    assert "assess_infrastructure" in names
+    assert "service_inspect" in names
+    assert "get_service_logs" not in names  # consolidated into service_inspect
+
+
+def test_build_server_mode_full():
+    from vps_mcp.server import build_server
+
+    s = build_server(mode="full")
+    assert len(s._tool_manager.list_tools()) == 45
+    names = {t.name for t in s._tool_manager.list_tools()}
+    assert "get_service_logs" in names
+    assert "list_revisions" in names
+
+
+def test_build_server_env_override(monkeypatch):
+    from vps_mcp.server import build_server
+
+    monkeypatch.setenv("VPS_MCP_MODE", "full")
+    s = build_server()
+    assert len(s._tool_manager.list_tools()) == 45
+
+

@@ -320,8 +320,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument(
         "--mode",
         default=None,
-        choices=["full", "compact"],
-        help="tool surface mode: 'full' (all 45 tools) or 'compact' (consolidated 13 action-based tools)",
+        choices=["compact", "full"],
+        help="tool surface mode: 'compact' (default, 11-13 action-based tools) or 'full' (all 45 granular tools)",
     )
     s.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     s.set_defaults(func=_cmd_serve)

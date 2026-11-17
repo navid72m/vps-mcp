@@ -1,7 +1,7 @@
 [project]
 name = "vps-mcp"
 version = "0.1.0"
-description = "Autonomous Digital Secretary & Governed VPS MCP platform (45 tools)"
+description = "Autonomous Digital Secretary & Governed VPS Infrastructure Control Plane"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.12, <=3.13"

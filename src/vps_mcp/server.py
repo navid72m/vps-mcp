@@ -598,7 +598,8 @@ def build_server(
 
     effective_mode: Literal["full", "compact"] = (
         mode
-        or (os.environ.get("VPS_MCP_MODE", "full") if os.environ.get("VPS_MCP_MODE") in ("full", "compact") else "full")
+        or (os.environ.get("VPS_MCP_MODE") if os.environ.get("VPS_MCP_MODE") in ("full", "compact") else None)
+        or "compact"
     )
     if config_path is None:
         env_cfg = os.environ.get("VPS_MCP_CONFIG")
