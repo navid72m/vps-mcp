@@ -1,10 +1,13 @@
 # VPS-MCP & Digital Secretary
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Website](https://img.shields.io/badge/website-navid72m.github.io%2Fvps--mcp-emerald.svg)](https://navid72m.github.io/vps-mcp/)
 [![Glama MCP Server](https://glama.ai/mcp/servers/navid72m/vps-mcp/badges/score.svg)](https://glama.ai/mcp/servers/navid72m/vps-mcp)
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-io.github.navid72m%2Fvps--mcp-blue.svg)](https://registry.modelcontextprotocol.io)
 [![Tools](https://img.shields.io/badge/tools-90%2B%20catalog-teal.svg)](#the-90-tool-ecosystem)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+> 🌐 **Interactive Landing Page & Visual Tool Explorer:** Explore live demos, architecture blueprints, and search all 44 MCP tools at **[https://navid72m.github.io/vps-mcp/](https://navid72m.github.io/vps-mcp/)**.
 
 An enterprise-grade **Model Context Protocol (MCP)** platform and autonomous **Executive Digital Secretary** that bridges AI models (Claude, Groq, DeepSeek, Qwen, Nemotron) with real-world infrastructure, enterprise databases, Git workflows, knowledge libraries, and personal productivity channels.
 
