@@ -208,25 +208,25 @@ def register_compact_tools(
             annotations=RO,
             description=(
                 "Introspect PostgreSQL & Odoo enterprise databases and compare schema states.\n\n"
-                "Actions:\n"
-                "- 'list': Enumerate allowlisted target databases and active disposable rehearsal copies.\n"
-                "- 'overview': Database size, largest tables, module counts, and problem indicators.\n"
-                "- 'modules': List installed Odoo modules with version, status, and code existence.\n"
-                "- 'table': Structure of one table: columns, data types, nullability, defaults, indexes.\n"
-                "- 'compare': Diff before vs after databases with risk findings and promotion verdict."
+                "Actions & Required Parameters:\n"
+                "- 'list': Enumerate allowlisted target databases and active disposable rehearsal copies (no extra parameters).\n"
+                "- 'overview': Database size, largest tables, module counts, and problem indicators (requires: db).\n"
+                "- 'modules': List installed Odoo modules with version, status, and code existence (requires: db; optional: state, major, code_missing).\n"
+                "- 'table': Structure of one table: columns, data types, nullability, defaults, indexes (requires: db, table).\n"
+                "- 'compare': Diff before vs after databases with risk findings and promotion verdict (requires: before, after; optional: exact_counts)."
             ),
         )
         @wrap
         async def db_inspect(
             action: Literal["list", "overview", "modules", "table", "compare"],
-            db: Annotated[str | None, Field(description="Database name (target or vmcp_ copy)")] = None,
-            before: Annotated[str | None, Field(description="Pre-migration database for compare")] = None,
-            after: Annotated[str | None, Field(description="Post-migration database for compare")] = None,
-            table: Annotated[str | None, Field(description="Table name for action='table'")] = None,
-            state: Annotated[str | None, Field(description="Module state filter")] = None,
-            major: Annotated[str | None, Field(description="Major version filter (e.g. '17')")] = None,
-            code_missing: Annotated[bool | None, Field(description="Filter modules missing code")] = None,
-            exact_counts: Annotated[bool, Field(description="Compute exact table row counts in compare")] = True,
+            db: Annotated[str | None, Field(description="Target or vmcp_ copy database name. Required for action: 'overview', 'modules', 'table'")] = None,
+            before: Annotated[str | None, Field(description="Pre-migration database name. Required for action: 'compare'")] = None,
+            after: Annotated[str | None, Field(description="Post-migration database name. Required for action: 'compare'")] = None,
+            table: Annotated[str | None, Field(description="Table name to inspect. Required for action: 'table'")] = None,
+            state: Annotated[str | None, Field(description="Optional module state filter ('installed', 'to upgrade', etc.) for action: 'modules'")] = None,
+            major: Annotated[str | None, Field(description="Optional major version filter (e.g. '17') for action: 'modules'")] = None,
+            code_missing: Annotated[bool | None, Field(description="Optional filter for modules missing Python code on disk for action: 'modules'")] = None,
+            exact_counts: Annotated[bool, Field(description="Compute exact row counts (slower) vs fast estimates for action: 'compare'")] = True,
         ) -> dict[str, Any]:
             if action == "list":
                 try:
