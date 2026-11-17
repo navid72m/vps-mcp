@@ -270,6 +270,17 @@
 
       <!-- Right Action Buttons -->
       <div class="flex items-center space-x-2.5">
+        <!-- PyPI Package Badge Button -->
+        <a href="https://pypi.org/project/steward-mcp/" target="_blank"
+           class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-surface-900/90 hover:bg-surface-850 border border-white/10 hover:border-amber-500/40 text-xs font-medium text-slate-300 hover:text-white transition-all shadow-sm group backdrop-blur-md"
+           title="View on PyPI (steward-mcp v0.1.1)">
+          <svg class="w-3.5 h-3.5 fill-amber-400 group-hover:scale-110 transition-transform" viewBox="0 0 24 24">
+            <path d="M12 0L1.75 5.87v11.75L12 23.5l10.25-5.88V5.87L12 0zm0 2.33l7.98 4.58L12 11.5 4.02 6.91 12 2.33zM3.75 8.16l7.25 4.15v8.32L3.75 16.5V8.16zm9.25 12.47v-8.32l7.25-4.15v8.34l-7.25 4.13z"/>
+          </svg>
+          <span class="text-slate-400 group-hover:text-slate-200 transition-colors">PyPI</span>
+          <span class="px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-300 font-mono text-[11px] font-bold border border-amber-500/30">v0.1.1</span>
+        </a>
+
         <!-- Glama Verified Score Pill Button -->
         <a href="https://glama.ai/mcp/servers/navid72m/vps-mcp" target="_blank"
            class="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-900/90 hover:bg-surface-850 border border-white/10 hover:border-brand-500/40 text-xs font-medium text-slate-300 hover:text-white transition-all shadow-sm group backdrop-blur-md"
@@ -332,13 +343,12 @@
           Quick Start Installation
         </a>
         <div class="flex items-center gap-2 pt-1">
+          <a href="https://pypi.org/project/steward-mcp/" target="_blank" class="flex-1 py-2 px-3 rounded-lg bg-surface-900 border border-white/10 text-xs text-slate-300 flex items-center justify-center gap-1.5">
+            <span class="text-amber-400 font-bold">PyPI:</span> steward-mcp v0.1.1
+          </a>
           <a href="https://glama.ai/mcp/servers/navid72m/vps-mcp" target="_blank" class="flex-1 py-2 px-3 rounded-lg bg-surface-900 border border-white/10 text-xs text-slate-300 flex items-center justify-center gap-1.5">
             <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-            Glama Score: <strong class="text-emerald-400">Grade A (3.8)</strong>
-          </a>
-          <a href="https://github.com/navid72m/vps-mcp" target="_blank" class="flex-1 py-2 px-3 rounded-lg bg-surface-900 border border-white/10 text-xs text-slate-300 flex items-center justify-center gap-1.5">
-            <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-            GitHub
+            Glama: <strong class="text-emerald-400">Grade A (3.8)</strong>
           </a>
         </div>
       </div>
@@ -384,7 +394,7 @@
       </div>
 
       <!-- One-line terminal copy -->
-      <div class="mt-8 flex justify-center">
+      <div class="mt-8 flex flex-col items-center justify-center gap-2">
         <div class="inline-flex items-center gap-3 bg-surface-900 border border-white/10 rounded-xl px-4 py-2 text-xs font-mono text-slate-300 shadow-xl">
           <span class="text-brand-400">$</span>
           <span>uvx steward-mcp serve</span>
@@ -392,6 +402,9 @@
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
           </button>
         </div>
+        <p class="text-[11px] text-slate-400 font-mono">
+          <span class="text-emerald-400">⚡ Zero-install</span> · No virtualenv or git cloning needed · Published on <a href="https://pypi.org/project/steward-mcp/" target="_blank" class="text-amber-300 underline hover:text-amber-200">PyPI as steward-mcp</a>
+        </p>
       </div>
 
       <!-- Stats Bar -->
@@ -756,24 +769,51 @@
           <pre id="client-code-block"><code>// Claude Desktop Configuration (~/Library/Application Support/Claude/claude_desktop_config.json)
 {
   "mcpServers": {
-    "steward": {
+    "vps": {
       "command": "uvx",
-      "args": [
-        "steward-mcp",
-        "serve",
-        "--config",
-        "/absolute/path/to/vps-mcp.toml"
-      ]
+      "args": ["steward-mcp", "serve", "--config", "/absolute/path/to/myvps.toml"]
+    },
+    "kb": {
+      "command": "uvx",
+      "args": ["--from", "steward-mcp", "kb-mcp", "serve"]
+    },
+    "memory": {
+      "command": "uvx",
+      "args": ["--from", "steward-mcp", "agent-memory", "serve"]
     }
   }
 }</code></pre>
         </div>
       </div>
 
-      <!-- Quickstart Notes -->
-      <div class="mt-8 p-4 rounded-xl bg-surface-900/60 border border-white/5 flex items-start gap-3 text-xs text-slate-400">
-        <span class="text-brand-400 text-base">💡</span>
-        <span><strong>Zero-Config Introspection:</strong> You can test without an active VPS configuration! Running <code class="text-brand-300 font-mono">uvx steward-mcp serve</code> boots directly into inspection fallback mode, exposing the consolidated compact catalog (or all 45 granular tools with <code class="text-brand-300 font-mono">--mode full</code>) for exploration without live credentials.</span>
+      <!-- Quickstart Architecture & Config Notes -->
+      <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="p-4 rounded-xl bg-surface-900/60 border border-white/5 flex flex-col gap-2 text-xs text-slate-400">
+          <div class="flex items-center gap-2 text-brand-300 font-semibold font-mono">
+            <span>⚡ Zero-Install Execution</span>
+          </div>
+          <p>
+            No git cloning or Python virtualenv (<code class="text-slate-300 font-mono">.venv</code>) is needed. Running <code class="text-brand-300 font-mono">uvx steward-mcp serve</code> automatically downloads and runs the package from PyPI in an isolated ephemeral cache.
+          </p>
+        </div>
+
+        <div class="p-4 rounded-xl bg-surface-900/60 border border-white/5 flex flex-col gap-2 text-xs text-slate-400">
+          <div class="flex items-center gap-2 text-emerald-300 font-semibold font-mono">
+            <span>🛡️ What is myvps.toml?</span>
+          </div>
+          <p>
+            It is <strong>not</strong> a Python environment! It is your <strong>Server Connection &amp; Safety Policy</strong>: your server's IP address, SSH key, and the allowlist of services the AI is permitted to manage.
+          </p>
+        </div>
+
+        <div class="p-4 rounded-xl bg-surface-900/60 border border-white/5 flex flex-col gap-2 text-xs text-slate-400">
+          <div class="flex items-center gap-2 text-cyan-300 font-semibold font-mono">
+            <span>💡 Zero-Config Introspection</span>
+          </div>
+          <p>
+            The <code class="text-slate-300 font-mono">--config</code> argument is completely optional. Omit it to boot immediately into dry-run inspection mode without requiring live SSH keys or an active server.
+          </p>
+        </div>
       </div>
 
     </div>
@@ -810,6 +850,38 @@
           <summary class="flex items-center justify-between p-6 cursor-pointer text-left list-none font-semibold text-white group-hover:text-brand-300 transition-colors">
             <span class="text-base sm:text-lg flex items-center gap-3">
               <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">02</span>
+              Do I need to set up a Python virtual environment or clone the repository?
+            </span>
+            <span class="ml-4 flex-shrink-0 text-slate-400 group-open:rotate-180 transition-transform duration-200">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </span>
+          </summary>
+          <div class="px-6 pb-6 text-sm sm:text-base text-slate-300 font-normal leading-relaxed border-t border-white/5 pt-4">
+            No! Steward is published as a Python package on PyPI (<code class="text-amber-300 font-mono">steward-mcp</code>). By using Astral's <code class="text-brand-300 font-mono">uvx steward-mcp serve</code>, the runner automatically fetches and executes the package in an ephemeral, isolated environment on the fly. You do not need to create or activate a <code class="text-slate-300 font-mono">.venv</code>, install dependencies manually, or clone the Git repository.
+          </div>
+        </details>
+
+        <!-- FAQ Item 3 -->
+        <details class="group glass-card rounded-2xl border border-white/5 overflow-hidden transition-all duration-200 open:border-brand-500/30">
+          <summary class="flex items-center justify-between p-6 cursor-pointer text-left list-none font-semibold text-white group-hover:text-brand-300 transition-colors">
+            <span class="text-base sm:text-lg flex items-center gap-3">
+              <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">03</span>
+              What is myvps.toml and is it mandatory?
+            </span>
+            <span class="ml-4 flex-shrink-0 text-slate-400 group-open:rotate-180 transition-transform duration-200">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </span>
+          </summary>
+          <div class="px-6 pb-6 text-sm sm:text-base text-slate-300 font-normal leading-relaxed border-t border-white/5 pt-4">
+            <code class="text-slate-200 font-mono">myvps.toml</code> is your <strong>Remote Server Connection and Safety Policy</strong> file. It specifies your VPS IP address, SSH user, pinned SSH host key, and the allowlisted services (e.g. Nginx, Docker) that the AI is permitted to manage. It is <strong>not</strong> a Python environment config. Furthermore, it is completely optional: running without <code class="text-brand-300 font-mono">--config</code> boots directly into Zero-Config Introspection mode so you or your AI client can test and inspect all tools safely without connecting to a live server.
+          </div>
+        </details>
+
+        <!-- FAQ Item 4 -->
+        <details class="group glass-card rounded-2xl border border-white/5 overflow-hidden transition-all duration-200 open:border-brand-500/30">
+          <summary class="flex items-center justify-between p-6 cursor-pointer text-left list-none font-semibold text-white group-hover:text-brand-300 transition-colors">
+            <span class="text-base sm:text-lg flex items-center gap-3">
+              <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">04</span>
               How does VPS-MCP prevent accidental or destructive server commands?
             </span>
             <span class="ml-4 flex-shrink-0 text-slate-400 group-open:rotate-180 transition-transform duration-200">
@@ -821,11 +893,11 @@
           </div>
         </details>
 
-        <!-- FAQ Item 3 -->
+        <!-- FAQ Item 5 -->
         <details class="group glass-card rounded-2xl border border-white/5 overflow-hidden transition-all duration-200 open:border-brand-500/30">
           <summary class="flex items-center justify-between p-6 cursor-pointer text-left list-none font-semibold text-white group-hover:text-brand-300 transition-colors">
             <span class="text-base sm:text-lg flex items-center gap-3">
-              <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">03</span>
+              <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">05</span>
               Which AI clients and IDEs support VPS-MCP?
             </span>
             <span class="ml-4 flex-shrink-0 text-slate-400 group-open:rotate-180 transition-transform duration-200">
@@ -837,11 +909,11 @@
           </div>
         </details>
 
-        <!-- FAQ Item 4 -->
+        <!-- FAQ Item 6 -->
         <details class="group glass-card rounded-2xl border border-white/5 overflow-hidden transition-all duration-200 open:border-brand-500/30">
           <summary class="flex items-center justify-between p-6 cursor-pointer text-left list-none font-semibold text-white group-hover:text-brand-300 transition-colors">
             <span class="text-base sm:text-lg flex items-center gap-3">
-              <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">04</span>
+              <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">06</span>
               How does zero-downtime PostgreSQL and Odoo migration rehearsal work?
             </span>
             <span class="ml-4 flex-shrink-0 text-slate-400 group-open:rotate-180 transition-transform duration-200">
@@ -853,11 +925,11 @@
           </div>
         </details>
 
-        <!-- FAQ Item 5 -->
+        <!-- FAQ Item 7 -->
         <details class="group glass-card rounded-2xl border border-white/5 overflow-hidden transition-all duration-200 open:border-brand-500/30">
           <summary class="flex items-center justify-between p-6 cursor-pointer text-left list-none font-semibold text-white group-hover:text-brand-300 transition-colors">
             <span class="text-base sm:text-lg flex items-center gap-3">
-              <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">05</span>
+              <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">07</span>
               What is the Digital Secretary executive cockpit and Telegram integration?
             </span>
             <span class="ml-4 flex-shrink-0 text-slate-400 group-open:rotate-180 transition-transform duration-200">
@@ -869,11 +941,11 @@
           </div>
         </details>
 
-        <!-- FAQ Item 6 -->
+        <!-- FAQ Item 8 -->
         <details class="group glass-card rounded-2xl border border-white/5 overflow-hidden transition-all duration-200 open:border-brand-500/30">
           <summary class="flex items-center justify-between p-6 cursor-pointer text-left list-none font-semibold text-white group-hover:text-brand-300 transition-colors">
             <span class="text-base sm:text-lg flex items-center gap-3">
-              <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">06</span>
+              <span class="w-7 h-7 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-400 flex items-center justify-center text-xs font-mono">08</span>
               Is VPS-MCP open-source and free to self-host?
             </span>
             <span class="ml-4 flex-shrink-0 text-slate-400 group-open:rotate-180 transition-transform duration-200">
@@ -900,6 +972,7 @@
       </div>
 
       <div class="flex items-center space-x-6">
+        <a href="https://pypi.org/project/steward-mcp/" target="_blank" class="hover:text-amber-300 text-slate-400 transition-colors">PyPI (steward-mcp)</a>
         <a href="https://github.com/navid72m/vps-mcp" target="_blank" class="hover:text-white transition-colors">GitHub Repository</a>
         <a href="https://glama.ai/mcp/servers/navid72m/vps-mcp" target="_blank" class="hover:text-white transition-colors">Glama Registry Listing</a>
         <a href="https://github.com/navid72m/vps-mcp/blob/main/docs/USAGE_EXAMPLES.md" target="_blank" class="hover:text-white transition-colors">Usage Examples</a>
@@ -1177,31 +1250,44 @@
       claude: `// Claude Desktop Configuration (~/Library/Application Support/Claude/claude_desktop_config.json)
 {
   "mcpServers": {
-    "steward": {
+    "vps": {
       "command": "uvx",
-      "args": [
-        "steward-mcp",
-        "serve",
-        "--config",
-        "/absolute/path/to/vps-mcp.toml"
-      ]
+      "args": ["steward-mcp", "serve", "--config", "/absolute/path/to/myvps.toml"]
+    },
+    "kb": {
+      "command": "uvx",
+      "args": ["--from", "steward-mcp", "kb-mcp", "serve"]
+    },
+    "memory": {
+      "command": "uvx",
+      "args": ["--from", "steward-mcp", "agent-memory", "serve"]
     }
   }
 }`,
       cursor: `// Cursor / VS Code Configuration (.cursor/mcp.json)
 {
   "mcpServers": {
-    "steward": {
+    "vps": {
       "command": "uvx",
       "args": ["steward-mcp", "serve"]
+    },
+    "kb": {
+      "command": "uvx",
+      "args": ["--from", "steward-mcp", "kb-mcp", "serve"]
     }
   }
 }`,
-      uvx: `# Run directly via Astral uv (Zero-install, instant execution)
-uvx steward-mcp serve
+      uvx: `# 1. Governed VPS Control Plane (Zero-install via PyPI: steward-mcp)
+uvx steward-mcp serve --config ~/.config/vps-mcp/myvps.toml
 
-# Or point to your policy file
-uvx steward-mcp serve --config /etc/vps-mcp.toml`,
+# 2. Standalone Knowledge Base Dense Semantic RAG (Technical books & PDFs)
+uvx --from steward-mcp kb-mcp serve
+
+# 3. Persistent Cross-Agent Memory Store
+uvx --from steward-mcp agent-memory serve
+
+# 4. Digital Secretary Web Cockpit UI (Local port 8765)
+uvx --from steward-mcp assistant ui`,
       docker: `# Run containerized MCP server directly
 docker run -i --rm \
   -v ~/.ssh:/root/.ssh:ro \
