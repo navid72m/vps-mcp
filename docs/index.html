@@ -232,42 +232,115 @@
   <div class="fixed top-[70%] left-[-10%] w-[600px] h-[600px] bg-brand-500/5 blur-[140px] pointer-events-none -z-10"></div>
 
   <!-- Navbar -->
-  <header class="sticky top-0 z-40 backdrop-blur-xl bg-surface-950/80 border-b border-white/5 transition-all duration-200">
+  <header class="sticky top-0 z-50 backdrop-blur-2xl bg-surface-950/85 border-b border-white/[0.08] shadow-lg shadow-black/20 transition-all duration-200">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-      <div class="flex items-center space-x-3">
-        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-cyan-500 flex items-center justify-center text-surface-950 font-black shadow-lg shadow-brand-500/20">
-          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
+      <!-- Brand Logo & Title -->
+      <a href="#" class="flex items-center space-x-3 group cursor-pointer focus:outline-none">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 via-brand-500 to-cyan-400 p-[1.5px] shadow-lg shadow-brand-500/20 group-hover:shadow-brand-500/40 group-hover:scale-105 transition-all">
+          <div class="w-full h-full bg-surface-950 rounded-[10px] flex items-center justify-center text-brand-400 group-hover:text-brand-300">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          </div>
         </div>
-        <span class="font-bold text-lg tracking-tight text-white flex items-center gap-2">
-          vps-mcp
-          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20">Digital Secretary</span>
-        </span>
-      </div>
+        <div class="flex items-center gap-2.5">
+          <span class="font-bold text-lg tracking-tight text-white group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-brand-300 transition-all">
+            vps-mcp
+          </span>
+          <span class="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20 group-hover:border-brand-500/40 transition-colors">
+            <span class="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse"></span>
+            Digital Secretary
+          </span>
+        </div>
+      </a>
 
-      <nav class="hidden md:flex items-center space-x-8 text-sm font-medium text-slate-300">
-        <a href="#pillars" class="hover:text-brand-400 transition-colors">Capabilities</a>
-        <a href="#simulator" class="hover:text-brand-400 transition-colors">Terminal Demo</a>
-        <a href="#cockpit" class="hover:text-brand-400 transition-colors">Cockpit UI</a>
-        <a href="#tools" class="hover:text-brand-400 transition-colors flex items-center gap-1.5">
-          Tools Catalog
-          <span class="bg-surface-800 text-brand-400 text-[10px] px-1.5 py-0.5 rounded-md font-mono border border-brand-500/20">44</span>
+      <!-- Desktop Nav Dock -->
+      <nav class="hidden lg:flex items-center space-x-1 p-1 rounded-xl bg-surface-900/60 border border-white/[0.06] text-xs font-medium text-slate-300 backdrop-blur-md">
+        <a href="#pillars" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.08] transition-all">Capabilities</a>
+        <a href="#simulator" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.08] transition-all">Simulator</a>
+        <a href="#cockpit" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.08] transition-all">Cockpit</a>
+        <a href="#tools" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.08] transition-all flex items-center gap-1.5">
+          Tools
+          <span class="px-1.5 py-0.2 rounded-full bg-brand-500/15 text-brand-300 text-[10px] font-mono font-bold border border-brand-500/30">44</span>
         </a>
-        <a href="#safety" class="hover:text-brand-400 transition-colors">Safety Model</a>
-        <a href="#quickstart" class="hover:text-brand-400 transition-colors">Quickstart</a>
-        <a href="#faq" class="hover:text-brand-400 transition-colors">FAQ</a>
+        <a href="#safety" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.08] transition-all">Safety</a>
+        <a href="#quickstart" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.08] transition-all">Quickstart</a>
+        <a href="#faq" class="px-3 py-1.5 rounded-lg hover:text-white hover:bg-white/[0.08] transition-all">FAQ</a>
       </nav>
 
-      <div class="flex items-center space-x-3">
-        <a href="https://glama.ai/mcp/servers/navid72m/vps-mcp" target="_blank" class="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-surface-850 hover:bg-surface-800 border border-white/10 text-slate-200 transition-colors">
-          <span class="w-2 h-2 rounded-full bg-brand-400 animate-pulse"></span>
-          Glama Score: <strong class="text-brand-400">B (3.4)</strong>
+      <!-- Right Action Buttons -->
+      <div class="flex items-center space-x-2.5">
+        <!-- Glama Verified Score Pill Button -->
+        <a href="https://glama.ai/mcp/servers/navid72m/vps-mcp" target="_blank"
+           class="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-900/90 hover:bg-surface-850 border border-white/10 hover:border-brand-500/40 text-xs font-medium text-slate-300 hover:text-white transition-all shadow-sm group backdrop-blur-md"
+           title="View Glama Registry Score &amp; Verification">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+          </span>
+          <span class="text-slate-400 group-hover:text-slate-200 transition-colors">Glama</span>
+          <span class="px-1.5 py-0.5 rounded-md bg-brand-500/15 text-brand-300 font-mono text-[11px] font-bold border border-brand-500/30 group-hover:bg-brand-500/25 transition-colors">Tier B · 3.4</span>
         </a>
-        <a href="https://github.com/navid72m/vps-mcp" target="_blank" class="inline-flex items-center gap-2 text-xs font-semibold px-3.5 py-2 rounded-lg bg-white text-surface-950 hover:bg-slate-200 transition-all shadow-md shadow-white/10">
-          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-          GitHub
+
+        <!-- GitHub Button (Modern Dark Glass with Star Badge) -->
+        <a href="https://github.com/navid72m/vps-mcp" target="_blank"
+           class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-900/90 hover:bg-surface-850 border border-white/10 hover:border-slate-500 text-xs font-semibold text-slate-200 hover:text-white transition-all shadow-sm group backdrop-blur-md">
+          <svg class="w-4 h-4 fill-slate-300 group-hover:fill-white transition-colors" viewBox="0 0 24 24">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <span>GitHub</span>
+          <span class="hidden xl:inline-flex items-center gap-1 text-[10px] font-mono text-amber-300 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/20 group-hover:bg-amber-400/20 transition-colors">
+            <svg class="w-2.5 h-2.5 fill-amber-400" viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+            Star
+          </span>
         </a>
+
+        <!-- Primary Quickstart CTA Button -->
+        <a href="#quickstart"
+           class="hidden md:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-brand-500 via-emerald-400 to-teal-400 hover:from-brand-400 hover:to-teal-300 text-surface-950 font-bold text-xs tracking-tight shadow-md shadow-brand-500/20 hover:shadow-brand-500/35 transition-all transform hover:-translate-y-0.5">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span>Quickstart</span>
+        </a>
+
+        <!-- Mobile Hamburger Menu Button -->
+        <button id="mobile-menu-btn" onclick="toggleMobileMenu()" class="lg:hidden p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.08] border border-white/5 transition-colors focus:outline-none" aria-label="Toggle navigation menu">
+          <svg id="hamburger-icon" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          <svg id="close-icon" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile Navigation Drawer -->
+    <div id="mobile-nav" class="hidden lg:hidden border-t border-white/[0.08] bg-surface-950/95 backdrop-blur-2xl px-4 py-4 space-y-1.5">
+      <a href="#pillars" onclick="closeMobileMenu()" class="block px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-colors">Capabilities</a>
+      <a href="#simulator" onclick="closeMobileMenu()" class="block px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-colors">Terminal Demo</a>
+      <a href="#cockpit" onclick="closeMobileMenu()" class="block px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-colors">Executive Web Cockpit</a>
+      <a href="#tools" onclick="closeMobileMenu()" class="flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-colors">
+        <span>44-Tools Catalog</span>
+        <span class="px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-300 text-xs font-mono font-bold">44 Tools</span>
+      </a>
+      <a href="#safety" onclick="closeMobileMenu()" class="block px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-colors">Safety Model</a>
+      <a href="#faq" onclick="closeMobileMenu()" class="block px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-colors">FAQ</a>
+      
+      <div class="pt-3 mt-2 border-t border-white/10 flex flex-col gap-2">
+        <a href="#quickstart" onclick="closeMobileMenu()" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-brand-500 to-teal-400 text-surface-950 font-bold text-xs text-center flex items-center justify-center gap-2 shadow-lg shadow-brand-500/20">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          Quick Start Installation
+        </a>
+        <div class="flex items-center gap-2 pt-1">
+          <a href="https://glama.ai/mcp/servers/navid72m/vps-mcp" target="_blank" class="flex-1 py-2 px-3 rounded-lg bg-surface-900 border border-white/10 text-xs text-slate-300 flex items-center justify-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            Glama Score: <strong class="text-brand-400">3.4</strong>
+          </a>
+          <a href="https://github.com/navid72m/vps-mcp" target="_blank" class="flex-1 py-2 px-3 rounded-lg bg-surface-900 border border-white/10 text-xs text-slate-300 flex items-center justify-center gap-1.5">
+            <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            GitHub
+          </a>
+        </div>
       </div>
     </div>
   </header>
@@ -277,10 +350,15 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center relative z-10">
       
       <!-- Announcement Badge -->
-      <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-brand-500/10 border border-brand-500/20 text-brand-400 text-xs font-semibold mb-8 backdrop-blur-md">
-        <span class="inline-block w-2 h-2 rounded-full bg-brand-400 animate-ping"></span>
-        <span>Certified on Official Model Context Protocol Registry &amp; Glama Directory</span>
-      </div>
+      <a href="https://glama.ai/mcp/servers/navid72m/vps-mcp" target="_blank"
+         class="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-surface-900/80 border border-brand-500/25 text-brand-400 text-xs font-semibold mb-8 backdrop-blur-md hover:border-brand-400 hover:bg-brand-500/10 transition-all shadow-lg shadow-brand-500/10 group">
+        <span class="flex h-2 w-2 relative">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+        </span>
+        <span class="text-slate-300 group-hover:text-white transition-colors">Certified on Model Context Protocol Registry &amp; Glama Directory</span>
+        <span class="text-brand-400 font-bold group-hover:translate-x-0.5 transition-transform">→</span>
+      </a>
 
       <!-- Main Headline -->
       <h1 class="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white max-w-5xl mx-auto leading-[1.12]">
@@ -1161,6 +1239,32 @@ docker run -i --rm \
         t.classList.remove('translate-y-0', 'opacity-100');
         t.classList.add('translate-y-20', 'opacity-0');
       }, 2500);
+    }
+
+    // Mobile Navigation Drawer Toggle
+    function toggleMobileMenu() {
+      const menu = document.getElementById('mobile-nav');
+      const burger = document.getElementById('hamburger-icon');
+      const close = document.getElementById('close-icon');
+      const isOpen = !menu.classList.contains('hidden');
+      if (isOpen) {
+        menu.classList.add('hidden');
+        burger.classList.remove('hidden');
+        close.classList.add('hidden');
+      } else {
+        menu.classList.remove('hidden');
+        burger.classList.add('hidden');
+        close.classList.remove('hidden');
+      }
+    }
+
+    function closeMobileMenu() {
+      const menu = document.getElementById('mobile-nav');
+      const burger = document.getElementById('hamburger-icon');
+      const close = document.getElementById('close-icon');
+      if (menu) menu.classList.add('hidden');
+      if (burger) burger.classList.remove('hidden');
+      if (close) close.classList.add('hidden');
     }
 
     // Initialize on page load
