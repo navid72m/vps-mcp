@@ -19,8 +19,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://navid72m.github.io/vps-mcp/"
-Documentation = "https://navid72m.github.io/vps-mcp/"
+Homepage = "https://www.navidmirnouri.com/vps-mcp/"
+Documentation = "https://www.navidmirnouri.com/vps-mcp/"
 Repository = "https://github.com/navid72m/vps-mcp"
 Glama = "https://glama.ai/mcp/servers/navid72m/vps-mcp"
 
