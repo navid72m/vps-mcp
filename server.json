@@ -2,8 +2,9 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.navid72m/vps-mcp",
   "title": "VPS MCP & Digital Secretary",
-  "description": "Autonomous Digital Secretary and VPS MCP platform with Executive Web Cockpit",
+  "description": "Autonomous Digital Secretary and Governed VPS MCP platform (44 tools) — https://navid72m.github.io/vps-mcp/",
   "version": "0.1.0",
+  "homepage": "https://navid72m.github.io/vps-mcp/",
   "repository": {
     "url": "https://github.com/navid72m/vps-mcp",
     "source": "github"
