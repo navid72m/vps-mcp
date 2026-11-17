@@ -150,12 +150,18 @@ def _rw(destructive: bool, idempotent: bool = False) -> ToolAnnotations:
 # ------------------------------------------------------------------------------- server
 
 
-def create_server(app: AppContext) -> MCPServer:
+def create_server(app: AppContext, *, mode: Literal["full", "compact"] = "full") -> MCPServer:
     instructions = INSTRUCTIONS
     if app.memory is not None:
         instructions += "\n\n" + app.memory.connect_instructions()
     mcp = MCPServer(name="vps-mcp", instructions=instructions, version="0.1.0")
     wrap = _tool_wrapper(app)
+
+    if mode == "compact":
+        from vps_mcp.compact import register_compact_tools
+
+        register_compact_tools(mcp, app, wrap, _session_id)
+        return mcp
 
     # ------------------------------------------------------------- read-only
 
@@ -583,8 +589,17 @@ def build_context(
     return app
 
 
-def build_server(config_path: str | Path | None = None) -> MCPServer:
+def build_server(
+    config_path: str | Path | None = None,
+    *,
+    mode: Literal["full", "compact"] | None = None,
+) -> MCPServer:
     import os
+
+    effective_mode: Literal["full", "compact"] = (
+        mode
+        or (os.environ.get("VPS_MCP_MODE", "full") if os.environ.get("VPS_MCP_MODE") in ("full", "compact") else "full")
+    )
     if config_path is None:
         env_cfg = os.environ.get("VPS_MCP_CONFIG")
         if env_cfg and Path(env_cfg).is_file():
@@ -593,7 +608,7 @@ def build_server(config_path: str | Path | None = None) -> MCPServer:
         config = load_config(config_path)
         for name in ("vps_mcp", "asyncssh", "mcp", "httpx2", "httpcore"):
             install_redaction(logging.getLogger(name), config.secret_strings)
-        return create_server(build_context(config))
+        return create_server(build_context(config), mode=effective_mode)
 
     # Self-contained inspection / fallback configuration (for Glama container introspection)
     import tempfile
@@ -614,4 +629,4 @@ def build_server(config_path: str | Path | None = None) -> MCPServer:
         ),
         gitlab=GitLabSettings(url="https://gitlab.example.com", keychain_account="demo"),
     )
-    return create_server(build_context(fallback_cfg, keychain_reader=lambda *a: "mock_token"))
+    return create_server(build_context(fallback_cfg, keychain_reader=lambda *a: "mock_token"), mode=effective_mode)

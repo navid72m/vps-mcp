@@ -240,6 +240,30 @@ tool-calling support.
 Every client that uses the same `--config` shares the same [memory](#memory), so a note written
 in one client can be found by the next session in all of them.
 
+### Surface Modes: Full (45 Tools) vs Compact (13 Tools)
+
+By default, `vps-mcp serve` exposes the full granular catalog (45 tools). For LLM clients that benefit from a tighter tool surface (reducing token cost and routing errors), use `--mode compact`:
+
+```bash
+uv run vps-mcp serve --config ~/.config/vps-mcp/myvps.toml --mode compact
+```
+*(Or set `export VPS_MCP_MODE=compact`)*
+
+This consolidates the 45 granular tools into **13 action-based tools**, reducing schema token overhead by ~70%:
+* `assess_infrastructure`: Holistic VPS health verdict, compute load, RAM, storage headroom, runtimes, and warnings.
+* `service_inspect`: Consolidated `action: ["list", "status", "logs", "config", "revisions", "audit"]`.
+* `service_control`: Runtime controls `action: ["start", "stop", "restart", "enable_boot", "disable_boot"]`.
+* `service_manage`: Lifecycle and rollbacks `action: ["deploy", "update", "configure", "rollback", "remove"]`.
+* `db_inspect`: Schema and diffs `action: ["list", "overview", "modules", "table", "compare"]`.
+* `rehearsal_manage`: Disposable copy rehearsals `action: ["start", "status", "cancel", "last_run", "drop_copies"]`.
+* `migration_audit`: Health checks and reports `action: ["run_check", "list_reports", "get_report"]`.
+* `job_manage`: Declared script jobs `action: ["list", "run", "status", "cancel"]`.
+* `gitlab_repo`: Repo and code tree `action: ["projects", "refs", "tree", "read_file", "commits", "compare"]`.
+* `gitlab_items`: Issues and merge requests `action: ["list", "read", "create_issue", "comment", "create_mr", "close_issue"]`.
+* `gitlab_ci`: Pipelines and CI jobs `action: ["pipelines", "job_log", "retry_job", "cancel_job", "retry_pipeline", "cancel_pipeline", "trigger_pipeline"]`.
+* `gitlab_deploy`: Production deployments `action: ["targets", "deploy", "rollback"]`.
+* `memory_manage`: Persistent shared memory `action: ["search", "get", "save", "update", "archive"]`.
+
 ## Using it
 
 Ask in plain language. The assistant picks the tools.

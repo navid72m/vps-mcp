@@ -72,7 +72,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     try:
-        server = build_server(args.config)
+        server = build_server(args.config, mode=getattr(args, "mode", None))
     except ConfigError as exc:
         for e in exc.errors:
             print(f"config error: {e}", file=sys.stderr)
@@ -317,6 +317,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("serve", help="run the MCP server on stdio")
     s.add_argument("--config", default=None, help="path to vps policy TOML file")
+    s.add_argument(
+        "--mode",
+        default=None,
+        choices=["full", "compact"],
+        help="tool surface mode: 'full' (all 45 tools) or 'compact' (consolidated 13 action-based tools)",
+    )
     s.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     s.set_defaults(func=_cmd_serve)
 
