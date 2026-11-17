@@ -1,5 +1,6 @@
 # VPS-MCP & Digital Secretary
 
+[![PyPI](https://img.shields.io/pypi/v/steward-mcp.svg)](https://pypi.org/project/steward-mcp/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Website](https://img.shields.io/badge/website-navidmirnouri.com%2Fvps--mcp-emerald.svg)](https://www.navidmirnouri.com/vps-mcp/)
 [![Glama MCP Server](https://glama.ai/mcp/servers/navid72m/vps-mcp/badges/score.svg)](https://glama.ai/mcp/servers/navid72m/vps-mcp)
@@ -122,7 +123,35 @@ The platform exposes over 90 specialized tools divided across **VPS/GitLab MCP s
 | VPS | Linux with systemd (≥ 248 recommended: Ubuntu 22.04+, Debian 12+, RHEL 9+), apt or dnf, SSH; optionally Docker or Podman |
 | Migration tools | PostgreSQL ≥ 14 on the VPS (for the `pg_read_all_data` role) |
 
-## Quick start
+## Quick start & Installation
+
+### Option 1: Instant Zero-Install via `uvx` (Recommended)
+
+Run Steward and its companion MCP servers directly with zero git cloning or virtual environment setup:
+
+```bash
+# Run the Governed VPS Control Plane MCP server
+uvx steward-mcp serve --config ~/.config/vps-mcp/myvps.toml
+
+# Or run the standalone Knowledge Base Semantic RAG server
+uvx --from steward-mcp kb-mcp serve
+
+# Or run the shared Agent Memory server
+uvx --from steward-mcp agent-memory serve
+
+# Or launch the Executive Web Cockpit
+uvx --from steward-mcp assistant ui
+```
+
+### Option 2: Install via PyPI (`pip` / `uv`)
+
+```bash
+pip install steward-mcp
+# or
+uv tool install steward-mcp
+```
+
+### Option 3: From Source (Clone Repository)
 
 ```bash
 git clone https://github.com/navid72m/vps-mcp && cd vps-mcp
@@ -177,8 +206,14 @@ don't inherit your shell `PATH`.
 **Claude Code** (available in every new session):
 
 ```bash
+# Option A: Zero-install via uvx (PyPI)
+claude mcp add --scope user vps -- uvx steward-mcp serve --config ~/.config/vps-mcp/myvps.toml
+claude mcp add --scope user kb -- uvx --from steward-mcp kb-mcp serve
+claude mcp add --scope user memory -- uvx --from steward-mcp agent-memory serve
+
+# Option B: From local checkout
 claude mcp add --scope user vps -- "$(which uv)" run --directory "$PWD" \
-  vps-mcp serve --config ~/.config/vps-mcp/myvps.toml
+  steward serve --config ~/.config/vps-mcp/myvps.toml
 ```
 
 Optionally, let the read-only tools run without approval prompts. Add this to
@@ -210,23 +245,22 @@ Keep the state-changing tools on "ask".
 {
   "mcpServers": {
     "vps": {
-      "command": "uv",
-      "args": ["run", "--directory", "/absolute/path/to/vps-mcp",
-               "vps-mcp", "serve", "--config", "/absolute/path/to/.config/vps-mcp/myvps.toml"]
+      "command": "uvx",
+      "args": ["steward-mcp", "serve", "--config", "/absolute/path/to/.config/vps-mcp/myvps.toml"]
     },
     "kb": {
-      "command": "uv",
-      "args": ["run", "--directory", "/absolute/path/to/vps-mcp",
-               "kb-mcp", "serve"]
+      "command": "uvx",
+      "args": ["--from", "steward-mcp", "kb-mcp", "serve"]
     },
     "memory": {
-      "command": "uv",
-      "args": ["run", "--directory", "/absolute/path/to/vps-mcp",
-               "agent-memory", "serve"]
+      "command": "uvx",
+      "args": ["--from", "steward-mcp", "agent-memory", "serve"]
     }
   }
 }
 ```
+
+*(Note: If running from a local source clone instead of PyPI, substitute `"command": "uv", "args": ["run", "--directory", "/path/to/vps-mcp", "steward", "serve", ...]`)*
 
 In LM Studio, turn on `mcp/vps` (and optionally `mcp/kb`, `mcp/memory`) in the chat's Program panel, and pick a model with
 tool-calling support.
@@ -239,14 +273,12 @@ tool-calling support.
   "mcp": {
     "vps": {
       "type": "local",
-      "command": ["uv", "run", "--directory", "/absolute/path/to/vps-mcp",
-                  "vps-mcp", "serve", "--config", "/absolute/path/to/.config/vps-mcp/myvps.toml"],
+      "command": ["uvx", "steward-mcp", "serve", "--config", "/absolute/path/to/.config/vps-mcp/myvps.toml"],
       "enabled": true
     },
     "kb": {
       "type": "local",
-      "command": ["uv", "run", "--directory", "/absolute/path/to/vps-mcp",
-                  "kb-mcp", "serve"],
+      "command": ["uvx", "--from", "steward-mcp", "kb-mcp", "serve"],
       "enabled": true
     }
   }
@@ -288,17 +320,20 @@ This consolidates the 45 granular tools into **13 action-based tools**, reducing
 Following the modular MCP server pattern (Approach A), the repository includes a standalone MCP server for dense semantic vector search over technical books, research papers, and architecture documents using FAISS and SentenceTransformers (`all-MiniLM-L6-v2`):
 
 ```bash
-# Run standalone MCP server on stdio
+# Run standalone MCP server on stdio (zero-install via uvx)
+uvx --from steward-mcp kb-mcp serve
+
+# Or from local checkout
 uv run kb-mcp serve
 
 # Ingest and index a book or research paper (PDF, Markdown, text)
-uv run kb-mcp add ~/Downloads/ddia.pdf --title "Designing Data-Intensive Applications" --author "Martin Kleppmann"
+uvx --from steward-mcp kb-mcp add ~/Downloads/ddia.pdf --title "Designing Data-Intensive Applications" --author "Martin Kleppmann"
 
 # Search passages with verbatim excerpts, page citations, and scores
-uv run kb-mcp search "fault-tolerant consensus algorithms"
+uvx --from steward-mcp kb-mcp search "fault-tolerant consensus algorithms"
 
 # List all indexed books and papers
-uv run kb-mcp list
+uvx --from steward-mcp kb-mcp list
 ```
 
 **Exposed MCP Tools (5 tools):**

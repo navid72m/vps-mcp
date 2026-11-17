@@ -1,5 +1,5 @@
 [project]
-name = "vps-mcp"
+name = "steward-mcp"
 version = "0.1.0"
 description = "Autonomous Digital Secretary & Governed VPS Infrastructure Control Plane"
 readme = "README.md"
@@ -23,8 +23,10 @@ Homepage = "https://www.navidmirnouri.com/vps-mcp/"
 Documentation = "https://www.navidmirnouri.com/vps-mcp/"
 Repository = "https://github.com/navid72m/vps-mcp"
 Glama = "https://glama.ai/mcp/servers/navid72m/vps-mcp"
+PyPI = "https://pypi.org/project/steward-mcp/"
 
 [project.scripts]
+steward = "vps_mcp.cli:main"
 vps-mcp = "vps_mcp.cli:main"
 agent-memory = "agent_memory.cli:main"
 kb-mcp = "kb_mcp.cli:main"
@@ -43,7 +45,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vps_mcp", "src/agent_memory", "src/assistant"]
+packages = ["src/vps_mcp", "src/agent_memory", "src/assistant", "src/kb_mcp"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
