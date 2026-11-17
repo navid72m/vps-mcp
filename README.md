@@ -210,15 +210,25 @@ Keep the state-changing tools on "ask".
 {
   "mcpServers": {
     "vps": {
-      "command": "/absolute/path/to/uv",
+      "command": "uv",
       "args": ["run", "--directory", "/absolute/path/to/vps-mcp",
                "vps-mcp", "serve", "--config", "/absolute/path/to/.config/vps-mcp/myvps.toml"]
+    },
+    "kb": {
+      "command": "uv",
+      "args": ["run", "--directory", "/absolute/path/to/vps-mcp",
+               "kb-mcp", "serve"]
+    },
+    "memory": {
+      "command": "uv",
+      "args": ["run", "--directory", "/absolute/path/to/vps-mcp",
+               "agent-memory", "serve"]
     }
   }
 }
 ```
 
-In LM Studio, turn on `mcp/vps` in the chat's Program panel, and pick a model with
+In LM Studio, turn on `mcp/vps` (and optionally `mcp/kb`, `mcp/memory`) in the chat's Program panel, and pick a model with
 tool-calling support.
 
 **OpenCode** (`~/.config/opencode/opencode.json`, or `opencode.json` in a project):
@@ -229,8 +239,14 @@ tool-calling support.
   "mcp": {
     "vps": {
       "type": "local",
-      "command": ["/absolute/path/to/uv", "run", "--directory", "/absolute/path/to/vps-mcp",
+      "command": ["uv", "run", "--directory", "/absolute/path/to/vps-mcp",
                   "vps-mcp", "serve", "--config", "/absolute/path/to/.config/vps-mcp/myvps.toml"],
+      "enabled": true
+    },
+    "kb": {
+      "type": "local",
+      "command": ["uv", "run", "--directory", "/absolute/path/to/vps-mcp",
+                  "kb-mcp", "serve"],
       "enabled": true
     }
   }
@@ -266,6 +282,32 @@ This consolidates the 45 granular tools into **13 action-based tools**, reducing
 * `gitlab_ci`: Pipelines and CI jobs `action: ["pipelines", "job_log", "retry_job", "cancel_job", "retry_pipeline", "cancel_pipeline", "trigger_pipeline"]`.
 * `gitlab_deploy`: Production deployments `action: ["targets", "deploy", "rollback"]`.
 * `memory_manage`: Persistent shared memory `action: ["search", "get", "save", "update", "archive"]`.
+
+### Dedicated Knowledge Base RAG Server (`kb-mcp`)
+
+Following the modular MCP server pattern (Approach A), the repository includes a standalone MCP server for dense semantic vector search over technical books, research papers, and architecture documents using FAISS and SentenceTransformers (`all-MiniLM-L6-v2`):
+
+```bash
+# Run standalone MCP server on stdio
+uv run kb-mcp serve
+
+# Ingest and index a book or research paper (PDF, Markdown, text)
+uv run kb-mcp add ~/Downloads/ddia.pdf --title "Designing Data-Intensive Applications" --author "Martin Kleppmann"
+
+# Search passages with verbatim excerpts, page citations, and scores
+uv run kb-mcp search "fault-tolerant consensus algorithms"
+
+# List all indexed books and papers
+uv run kb-mcp list
+```
+
+**Exposed MCP Tools (5 tools):**
+* `kb_search`: Dense semantic vector search returning ranked passages with page citations and relevance scores.
+* `kb_read`: Read sequential content chunks from an indexed document in original book/chapter order.
+* `kb_list`: Catalog of all ingested documents, chunk counts, and file sizes.
+* `kb_add`: Ingest and index a new document with SHA256 deduplication.
+* `kb_remove`: Delete a document and its corresponding vector embeddings from the index.
+
 
 ## Using it
 

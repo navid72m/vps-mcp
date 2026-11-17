@@ -27,6 +27,7 @@ Glama = "https://glama.ai/mcp/servers/navid72m/vps-mcp"
 [project.scripts]
 vps-mcp = "vps_mcp.cli:main"
 agent-memory = "agent_memory.cli:main"
+kb-mcp = "kb_mcp.cli:main"
 assistant = "assistant.cli:main"
 
 [dependency-groups]
