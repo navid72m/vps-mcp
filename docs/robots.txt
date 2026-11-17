@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://navid72m.github.io/vps-mcp/sitemap.xml
+Sitemap: https://www.navidmirnouri.com/vps-mcp/sitemap.xml
