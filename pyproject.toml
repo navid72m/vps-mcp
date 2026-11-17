@@ -1,6 +1,6 @@
 [project]
 name = "steward-mcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Autonomous Digital Secretary & Governed VPS Infrastructure Control Plane"
 readme = "README.md"
 license = { text = "MIT" }
@@ -27,6 +27,7 @@ PyPI = "https://pypi.org/project/steward-mcp/"
 
 [project.scripts]
 steward = "vps_mcp.cli:main"
+steward-mcp = "vps_mcp.cli:main"
 vps-mcp = "vps_mcp.cli:main"
 agent-memory = "agent_memory.cli:main"
 kb-mcp = "kb_mcp.cli:main"

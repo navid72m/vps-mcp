@@ -3,7 +3,7 @@
   "name": "io.github.navid72m/vps-mcp",
   "title": "Steward: Governed VPS Control Plane & Digital Secretary",
   "description": "Autonomous Digital Secretary and Governed VPS Infrastructure Control Plane",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "homepage": "https://www.navidmirnouri.com/vps-mcp/",
   "repository": {
     "url": "https://github.com/navid72m/vps-mcp",
