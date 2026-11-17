@@ -7,7 +7,7 @@
 [![Tools](https://img.shields.io/badge/tools-90%2B%20catalog-teal.svg)](#the-90-tool-ecosystem)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> 🌐 **Interactive Landing Page & Visual Tool Explorer:** Explore live demos, architecture blueprints, and search all 44 MCP tools at **[https://www.navidmirnouri.com/vps-mcp/](https://www.navidmirnouri.com/vps-mcp/)**.
+> 🌐 **Interactive Landing Page & Visual Tool Explorer:** Explore live demos, architecture blueprints, and search all 45 MCP tools at **[https://www.navidmirnouri.com/vps-mcp/](https://www.navidmirnouri.com/vps-mcp/)**.
 
 An enterprise-grade **Model Context Protocol (MCP)** platform and autonomous **Executive Digital Secretary** that bridges AI models (Claude, Groq, DeepSeek, Qwen, Nemotron) with real-world infrastructure, enterprise databases, Git workflows, knowledge libraries, and personal productivity channels.
 
@@ -100,7 +100,7 @@ The platform exposes over 90 specialized tools divided across **VPS/GitLab MCP s
 
 | Domain | Tools | Primary Tools | Capabilities |
 |---|---|---|---|
-| **VPS Infrastructure & Systemd** | 16 | `list_services`, `get_resource_usage`, `restart_service`, `configure_service` | CPU/RAM/Disk metrics, journalctl logs, state mutation, declarative config rollback |
+| **VPS Infrastructure & Systemd** | 17 | `assess_infrastructure`, `list_services`, `get_resource_usage`, `restart_service`, `configure_service` | CPU/RAM/Disk metrics, journalctl logs, state mutation, declarative config rollback |
 | **PostgreSQL & Odoo DBs** | 5 | `db_list`, `db_overview`, `db_modules`, `db_table`, `db_compare` | Schema introspection, installed modules, table row counts, live database comparisons |
 | **Migration Rehearsals** | 8 | `rehearse`, `rehearsal_status`, `run_check`, `get_report` | Automated upgrade pipelines on disposable copy databases, finding analysis, risk verdicts |
 | **GitLab CI/CD & Deploy** | 15 | `gitlab_commits`, `gitlab_pipelines`, `deploy_from_gitlab` | Inspect repos, branches, MRs, CI jobs, verify targets, zero-downtime production deployments |
@@ -264,7 +264,7 @@ The full set of examples, covering every tool, is in [`docs/USAGE_EXAMPLES.md`](
 
 | Purpose | Tools |
 |---|---|
-| Look | `list_services`, `get_service_status`, `get_service_logs`, `get_service_config`, `list_revisions`, `get_resource_usage`, `get_audit_log` |
+| Look | `assess_infrastructure`, `list_services`, `get_service_status`, `get_service_logs`, `get_service_config`, `list_revisions`, `get_resource_usage`, `get_audit_log` |
 | Control | `start_service`, `stop_service`, `restart_service`, `set_boot_start` |
 | Lifecycle | `deploy_service`, `update_service`, `configure_service`, `rollback_service`, `remove_service` |
 

@@ -224,6 +224,23 @@ def create_server(app: AppContext) -> MCPServer:
 
     @mcp.tool(
         annotations=RO,
+        description=(
+            "Holistic assessment of VPS infrastructure: OS distribution, kernel, compute "
+            "(CPU/RAM/load), storage headroom, container runtimes (Docker/Podman), systemd health, "
+            "managed services state, database accessibility, and operational warnings."
+        ),
+    )
+    @wrap
+    async def assess_infrastructure(
+        include_services: bool = True,
+        include_databases: bool = True,
+    ) -> dict[str, Any]:
+        return await queries.assess_infrastructure(
+            app, include_services=include_services, include_databases=include_databases
+        )
+
+    @mcp.tool(
+        annotations=RO,
         description=("Show the audit trail of state-changing actions, newest first."),
     )
     @wrap

@@ -118,3 +118,17 @@ async def get_resource_usage(ctx: AppContext, include_services: bool = True) -> 
         return dict(snap.model_dump(mode="json"))
 
     return await bounded(ctx, collect(), "resource usage")
+
+
+async def assess_infrastructure(
+    ctx: AppContext,
+    include_services: bool = True,
+    include_databases: bool = True,
+) -> dict[str, Any]:
+    from vps_mcp.core.assessment import assess_infrastructure as _assess
+
+    return await bounded(
+        ctx,
+        _assess(ctx, include_services=include_services, include_databases=include_databases),
+        "infrastructure assessment",
+    )

@@ -38,7 +38,7 @@ MIG_RO = {
 
 async def test_tools_registered_only_with_config(mclient, client):
     names = {t.name for t in (await mclient.list_tools()).tools}
-    assert MIGRATION_TOOLS <= names and len(names) == 16 + 13
+    assert MIGRATION_TOOLS <= names and len(names) == 17 + 13
     plain = {t.name for t in (await client.list_tools()).tools}
     assert not (MIGRATION_TOOLS & plain)
     for t in (await mclient.list_tools()).tools:

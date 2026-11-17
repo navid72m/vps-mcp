@@ -54,7 +54,7 @@ async def test_tools_registered(jclient, jvps, tmp_path, monkeypatch):
 
     names = {t.name for t in (await jclient.list_tools()).tools}
     assert {"list_jobs", "run_job", "job_status", "cancel_job"} <= names
-    assert len(names) == 16 + 13 + 4
+    assert len(names) == 17 + 13 + 4
     monkeypatch.setenv("VPS_MCP_TEST_PASSPHRASE", "correct-horse-battery-staple")
     plain = build_context(mig_config(), executor=jvps, db_path=tmp_path / "p.db")
     plain_names = {t.name for t in (await SessionPerCall(create_server(plain)).list_tools()).tools}

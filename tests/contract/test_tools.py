@@ -10,6 +10,7 @@ READ_ONLY = {
     "get_service_logs",
     "get_service_config",
     "get_resource_usage",
+    "assess_infrastructure",
     "get_audit_log",
     "list_revisions",
 }
@@ -41,7 +42,7 @@ async def tools(client):
 
 async def test_exact_tool_set(tools):
     assert set(tools) == READ_ONLY | STATE_CHANGING
-    assert len(tools) == 16
+    assert len(tools) == 17
 
 
 async def test_annotations(tools):

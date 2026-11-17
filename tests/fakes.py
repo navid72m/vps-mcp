@@ -328,9 +328,19 @@ class FakeVps:
             return ok(
                 "MemTotal:        2048000 kB\nMemFree:          100000 kB\nMemAvailable:    1024000 kB\n"
             )
+        if path == "/etc/os-release":
+            return ok(
+                'NAME="Ubuntu"\nVERSION="22.04.4 LTS (Jammy Jellyfish)"\nID=ubuntu\n'
+                'PRETTY_NAME="Ubuntu 22.04.4 LTS"\nVERSION_ID="22.04"\n'
+            )
+        if path == "/proc/uptime":
+            return ok("123456.78 234567.89\n")
         if path in self.files:
             return ok(self.files[path])
         return err(f"cat: {path}: No such file or directory")
+
+    def _h_uname(self, args: list[str], stdin: str | None) -> CommandResult:
+        return ok("Linux 5.15.0-101-generic x86_64\n")
 
     def _h_nproc(self, args: list[str], stdin: str | None) -> CommandResult:
         return ok("2\n")
