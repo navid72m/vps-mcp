@@ -387,8 +387,8 @@
       <div class="mt-8 flex justify-center">
         <div class="inline-flex items-center gap-3 bg-surface-900 border border-white/10 rounded-xl px-4 py-2 text-xs font-mono text-slate-300 shadow-xl">
           <span class="text-brand-400">$</span>
-          <span>uvx vps-mcp serve</span>
-          <button onclick="copyToClipboard('uvx vps-mcp serve', this)" class="p-1 hover:text-brand-400 text-slate-400 transition-colors" title="Copy command">
+          <span>uvx steward-mcp serve</span>
+          <button onclick="copyToClipboard('uvx steward-mcp serve', this)" class="p-1 hover:text-brand-400 text-slate-400 transition-colors" title="Copy command">
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
           </button>
         </div>
@@ -756,10 +756,10 @@
           <pre id="client-code-block"><code>// Claude Desktop Configuration (~/Library/Application Support/Claude/claude_desktop_config.json)
 {
   "mcpServers": {
-    "vps-mcp": {
+    "steward": {
       "command": "uvx",
       "args": [
-        "vps-mcp",
+        "steward-mcp",
         "serve",
         "--config",
         "/absolute/path/to/vps-mcp.toml"
@@ -773,7 +773,7 @@
       <!-- Quickstart Notes -->
       <div class="mt-8 p-4 rounded-xl bg-surface-900/60 border border-white/5 flex items-start gap-3 text-xs text-slate-400">
         <span class="text-brand-400 text-base">💡</span>
-        <span><strong>Zero-Config Introspection:</strong> You can test without an active VPS configuration! Running <code class="text-brand-300 font-mono">uvx vps-mcp serve</code> boots directly into inspection fallback mode, exposing the consolidated compact catalog (or all 45 granular tools with <code class="text-brand-300 font-mono">--mode full</code>) for exploration without live credentials.</span>
+        <span><strong>Zero-Config Introspection:</strong> You can test without an active VPS configuration! Running <code class="text-brand-300 font-mono">uvx steward-mcp serve</code> boots directly into inspection fallback mode, exposing the consolidated compact catalog (or all 45 granular tools with <code class="text-brand-300 font-mono">--mode full</code>) for exploration without live credentials.</span>
       </div>
 
     </div>
@@ -1177,10 +1177,10 @@
       claude: `// Claude Desktop Configuration (~/Library/Application Support/Claude/claude_desktop_config.json)
 {
   "mcpServers": {
-    "vps-mcp": {
+    "steward": {
       "command": "uvx",
       "args": [
-        "vps-mcp",
+        "steward-mcp",
         "serve",
         "--config",
         "/absolute/path/to/vps-mcp.toml"
@@ -1191,17 +1191,17 @@
       cursor: `// Cursor / VS Code Configuration (.cursor/mcp.json)
 {
   "mcpServers": {
-    "vps-mcp": {
+    "steward": {
       "command": "uvx",
-      "args": ["vps-mcp", "serve"]
+      "args": ["steward-mcp", "serve"]
     }
   }
 }`,
-      uvx: `# Run directly via Astral uv (Fast, isolated Python environment)
-uvx vps-mcp serve
+      uvx: `# Run directly via Astral uv (Zero-install, instant execution)
+uvx steward-mcp serve
 
 # Or point to your policy file
-uvx vps-mcp serve --config /etc/vps-mcp.toml`,
+uvx steward-mcp serve --config /etc/vps-mcp.toml`,
       docker: `# Run containerized MCP server directly
 docker run -i --rm \
   -v ~/.ssh:/root/.ssh:ro \
