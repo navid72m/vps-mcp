@@ -31,7 +31,7 @@
  },
  {
   "name": "list_revisions",
-  "description": "List stored configuration/version revisions of a service.",
+  "description": "List stored historical configuration and version snapshots for a managed service. Inspects rollback candidates before rollback_service or confirms snapshots after update/configure. Distinct from get_service_config (live disk config) and get_audit_log (operational event log).",
   "read_only": true
  },
  {

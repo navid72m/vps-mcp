@@ -272,7 +272,24 @@ def create_server(app: AppContext) -> MCPServer:
         }
 
     @mcp.tool(
-        annotations=RO, description="List stored configuration/version revisions of a service."
+        annotations=RO,
+        description=(
+            "List stored historical configuration and version snapshots for a managed service.\n\n"
+            "Routing & When to Use:\n"
+            "- Call before `rollback_service` to inspect available rollback targets and verify if a 'previous' revision exists.\n"
+            "- Call after `update_service` or `configure_service` to confirm that the new configuration was snapshotted into the ledger.\n"
+            "- Differentiation from siblings:\n"
+            "  * Use `get_service_config` to read the CURRENT live configuration files or container spec from the VPS.\n"
+            "  * Use `list_revisions` to view the HISTORICAL timeline of committed snapshots.\n"
+            "  * Use `get_audit_log` to view operational event logs (start/stop/deploy attempts, exit codes, timestamps).\n\n"
+            "Parameters:\n"
+            "- `service`: Managed service name as listed by `list_services`.\n"
+            "- `kind`: Optional 'os' or 'container' to disambiguate when a service exists under both runtimes.\n\n"
+            "Returns:\n"
+            "- `{revisions: [{id, version, status, created_at}]}` ordered newest first.\n"
+            "- `status` values: 'active' (current state), 'previous' (immediate rollback candidate), 'superseded' (older snapshot), or 'rolled_back'.\n"
+            "- If no 'previous' revision exists, `rollback_service` cannot be invoked."
+        ),
     )
     @wrap
     async def list_revisions(service: ServiceParam, kind: KindParam = None) -> dict[str, Any]:
