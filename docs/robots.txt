@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://navid72m.github.io/vps-mcp/sitemap.xml
